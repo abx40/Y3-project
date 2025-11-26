@@ -1,0 +1,60 @@
+# System / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.swp
+.Python
+*.egg-info/
+*.egg
+
+# Virtualenvs
+venv/
+.venv/
+*/venv/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build / dist / caches
+dist/
+build/
+.parcel-cache/
+.turbo/
+.cache/
+.next/
+
+# Logs & temp
+*.log
+*.tmp
+*.bak
+*.orig
+
+# Project data
+zoom-frame-server/frames/
+*.raw
+*.png
+
+# Local config/tokens
+*.env
+*.env.local
+config.txt
+token.txt
+
+# Docker artifacts
+docker_built.txt
+
+
+# big files 
+videosdk-linux-raw-recording-sample/bin/libvideosdk.so
+videosdk-linux-raw-recording-sample/lib/zoom_video_sdk_old/libvideosdk.so

@@ -1,0 +1,1 @@
+ tail -f frame_server.log
