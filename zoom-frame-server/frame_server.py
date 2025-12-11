@@ -14,6 +14,8 @@ import torch
 from torchvision import transforms as T
 from torchvision.models import resnet18, ResNet18_Weights
 from models.xception_ffpp import Xception as CadeneXception
+import json
+from models.aasist.AASIST import Model as AASISTModel
 from collections import defaultdict, deque
 
 
@@ -59,6 +61,26 @@ PRED_HISTORY = defaultdict(lambda: deque(maxlen=15))  # rolling window per user
 # Keep a longer, time-stamped history per user for plotting (last ~60s)
 TIME_HISTORY = defaultdict(lambda: deque(maxlen=300))  # (timestamp, fake_prob)
 HISTORY_WINDOW_SEC = 60.0
+# How long to keep a user “active” after last media (seconds)
+ACTIVITY_TIMEOUT = 1.0
+# Track last audio timestamp per user (seconds)
+AUDIO_LAST = defaultdict(lambda: 0.0)
+# Track last audio fake probability
+AUDIO_FAKE = defaultdict(lambda: None)
+# Audio deepfake (AASIST)
+AASIST_CKPT = os.getenv("AASIST_CKPT", "./models/aasist/aasist_orig.pth")
+AASIST_CONF = os.getenv("AASIST_CONF", "./models/aasist/AASIST.conf")
+AUDIO_MODEL = None
+AUDIO_CFG = {}
+AUDIO_NB_SAMP = 64600
+AUDIO_SR = 16000
+
+# Track presence events (join/leave) even if no media seen yet
+USERS = {}
+
+
+def _skip_user(user_id: str) -> bool:
+    return user_id in ("mixed", "unknown")
 
 # Xception (DF40) defaults
 XCEPTION_CKPT = os.getenv("XCEPTION_CKPT", "./models/train_on_df40/xception.pth")
@@ -79,6 +101,55 @@ TRANSFORM = T.Compose([
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "deepfake_model.pt")
 
 
+
+
+
+def load_aasist_model():
+    """Load AASIST audio anti-spoof model if checkpoint + config are present."""
+    global AUDIO_MODEL, AUDIO_CFG, AUDIO_NB_SAMP, AUDIO_SR
+    if not os.path.isfile(AASIST_CKPT) or not os.path.isfile(AASIST_CONF):
+        print(f"[AUDIO] AASIST assets missing (ckpt={AASIST_CKPT}, conf={AASIST_CONF}); audio scoring disabled")
+        AUDIO_MODEL = None
+        return
+    try:
+        cfg = json.load(open(AASIST_CONF, "r"))
+        model_cfg = cfg.get('model_config', {})
+        AUDIO_CFG = model_cfg
+        AUDIO_NB_SAMP = int(model_cfg.get('nb_samp', 64600))
+        AUDIO_SR = int(model_cfg.get('sample_rate', 16000)) if 'sample_rate' in model_cfg else 16000
+        print(f"[AUDIO] Loading AASIST on {DEVICE} ...")
+        model = AASISTModel(model_cfg)
+        sd = torch.load(AASIST_CKPT, map_location='cpu')
+        missing, unexpected = model.load_state_dict(sd, strict=False)
+        if missing or unexpected:
+            print(f"[AUDIO] Load warning. Missing: {missing}. Unexpected: {unexpected}.")
+        model.eval()
+        model.to(DEVICE)
+        AUDIO_MODEL = model
+        print("[AUDIO] AASIST ready")
+    except Exception as e:
+        print(f"[AUDIO] Failed to load AASIST: {e}")
+        AUDIO_MODEL = None
+
+
+def _pad_or_repeat(wav: np.ndarray, target_len: int) -> np.ndarray:
+    if len(wav) >= target_len:
+        return wav[:target_len]
+    # repeat-pad
+    reps = target_len // len(wav) + 1
+    wav = np.tile(wav, reps)
+    return wav[:target_len]
+
+
+def _resample_linear(wav: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:
+    if sr_in == sr_out:
+        return wav
+    if len(wav) < 2:
+        return np.zeros(int(sr_out * max(len(wav) / max(sr_in,1), 0.001)), dtype=np.float32)
+    import numpy as np
+    t_old = np.linspace(0, len(wav) / sr_in, num=len(wav), endpoint=False)
+    t_new = np.linspace(0, len(wav) / sr_in, num=int(len(wav) * sr_out / sr_in), endpoint=False)
+    return np.interp(t_new, t_old, wav).astype(np.float32)
 
 def load_model():
     """ 
@@ -412,26 +483,88 @@ async def get_user_data(user_id: str, window: int = 60):
 @app.get("/users")
 async def get_active_users():
     """
-    NEW ENDPOINT: Get list of all users with recent activity
+    NEW ENDPOINT: Get list of all users with recent activity (frames/audio) OR presence pings.
     """
     now_t = time.time()
-    active_users = []
-    
+    user_map = {}
+
+    # Seed with presence data (users who joined even if no media yet)
+    for user_id, meta in USERS.items():
+        if _skip_user(user_id):
+            continue
+        user_map[user_id] = {
+            "user_id": user_id,
+            "last_seen": int(meta.get("last_seen", 0) * 1000),
+            "last_probability": 0.0,
+            "avg_probability": 0.0,
+            "frame_count": 0,
+            "has_audio": False,
+            "last_audio": None,
+            "last_event": meta.get("last_event"),
+            "last_audio_fake": AUDIO_FAKE.get(user_id),
+        }
+
+    # Merge in media activity (frames/audio)
     for user_id, hist in TIME_HISTORY.items():
-        if hist:
-            last_time, last_prob = hist[-1]
-            # Consider active if last frame within 10 seconds
-            if now_t - last_time < 10:
-                avg_prob = sum(p for (_, p) in hist) / len(hist)
-                active_users.append({
-                    "user_id": user_id,
-                    "last_seen": int(last_time * 1000),
-                    "last_probability": round(last_prob, 4),
-                    "avg_probability": round(avg_prob, 4),
-                    "frame_count": len(hist)
-                })
-    
-    return {"users": active_users}
+        if _skip_user(user_id):
+            continue
+        if not hist:
+            continue
+        last_time, last_prob = hist[-1]
+        if now_t - last_time >= ACTIVITY_TIMEOUT:
+            continue  # stale
+
+        avg_prob = sum(p for (_, p) in hist) / len(hist)
+        last_audio = AUDIO_LAST.get(user_id, 0.0)
+        has_audio = (now_t - last_audio) < ACTIVITY_TIMEOUT if last_audio else False
+
+        entry = user_map.get(user_id, {
+            "user_id": user_id,
+            "last_seen": int(last_time * 1000),
+            "last_probability": 0.0,
+            "avg_probability": 0.0,
+            "frame_count": 0,
+            "has_audio": False,
+            "last_audio": None,
+            "last_event": None,
+            "last_audio_fake": AUDIO_FAKE.get(user_id),
+        })
+
+        entry["last_seen"] = int(max(entry.get("last_seen", 0) / 1000.0, last_time) * 1000)
+        entry["last_probability"] = round(last_prob, 4)
+        entry["avg_probability"] = round(avg_prob, 4)
+        entry["frame_count"] = len(hist)
+        entry["has_audio"] = has_audio
+        entry["last_audio"] = int(last_audio * 1000) if last_audio else None
+        entry["last_audio_fake"] = AUDIO_FAKE.get(user_id, entry.get("last_audio_fake"))
+        user_map[user_id] = entry
+
+    # Add audio-only users (no frames yet)
+    for user_id, last_audio in AUDIO_LAST.items():
+        if _skip_user(user_id):
+            continue
+        if not last_audio:
+            continue
+        entry = user_map.get(user_id, {
+            "user_id": user_id,
+            "last_seen": int(last_audio * 1000),
+            "last_probability": 0.0,
+            "avg_probability": 0.0,
+            "frame_count": 0,
+            "has_audio": False,
+            "last_audio": None,
+            "last_event": None,
+            "last_audio_fake": AUDIO_FAKE.get(user_id),
+        })
+        entry["last_seen"] = int(max(entry.get("last_seen", 0) / 1000.0, last_audio) * 1000)
+        entry["has_audio"] = (now_t - last_audio) < ACTIVITY_TIMEOUT
+        entry["last_audio"] = int(last_audio * 1000)
+        entry["last_audio_fake"] = AUDIO_FAKE.get(user_id, entry.get("last_audio_fake"))
+        user_map[user_id] = entry
+
+    # Return as list (most recent first)
+    users = sorted(user_map.values(), key=lambda u: u["last_seen"], reverse=True)
+    return {"users": users}
 
 
 @app.get("/plot/{user_id}")
@@ -555,23 +688,51 @@ async def receive_audio(request: Request):
     body = await request.body()
     size = len(body)
 
-    safe_user = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in user_id)
-    ts_ms = int(time.time() * 1000)
-    filename = f"audio_{safe_user}_{ts_ms}_{sample_rate}hz_{channels}ch.pcm"
-    filepath = os.path.join(AUDIO_DIR, filename)
+    fake_prob = None
+    if AUDIO_MODEL is not None and size > 0:
+        try:
+            wav = np.frombuffer(body, dtype=np.int16).astype(np.float32) / 32768.0
+            if channels > 1 and len(wav) % channels == 0:
+                wav = wav.reshape(-1, channels)[:, 0]
+            wav = _resample_linear(wav, sample_rate, AUDIO_SR)
+            wav = _pad_or_repeat(wav, AUDIO_NB_SAMP)
+            tensor = torch.from_numpy(wav).unsqueeze(0).to(DEVICE)
+            with torch.inference_mode():
+                _, out = AUDIO_MODEL(tensor)
+                probs = torch.softmax(out, dim=1)
+                fake_prob = float(probs[0, 1].item())
+        except Exception as e:
+            print(f"[AUDIO] inference error for user {user_id}: {e}")
+            fake_prob = None
 
-    with open(filepath, "wb") as f:
-        f.write(body)
-
-    print(f"[AUDIO] user={user_id} {sample_rate}Hz {channels}ch bytes={size} -> {filepath}")
+    # No file writing; just log receipt.
+    print(f"[AUDIO] user={user_id} {sample_rate}Hz {channels}ch bytes={size} (not saved) fake_prob={fake_prob}")
+    AUDIO_LAST[user_id] = time.time()
+    AUDIO_FAKE[user_id] = fake_prob
 
     return {
         "status": "ok",
         "received": size,
         "sample_rate": sample_rate,
         "channels": channels,
-        "file": filename,
+        "file": None,
+        "fake_prob": fake_prob,
     }
+
+
+@app.post("/presence")
+async def presence(payload: dict):
+    """
+    Record user presence (join/leave) even if no media is sent.
+    Expected JSON: {"user_id": "...", "event": "join"|"leave"}
+    """
+    user_id = str(payload.get("user_id", "unknown"))
+    event = payload.get("event", "unknown")
+    USERS[user_id] = {
+        "last_seen": time.time(),
+        "last_event": event,
+    }
+    return {"status": "ok"}
 
 
 @app.get("/info")
@@ -588,6 +749,7 @@ async def get_info():
 async def startup_event():
     # Ensure the model is loaded inside the uvicorn worker process
     load_model()
+    load_aasist_model()
 
 
 if __name__ == "__main__":

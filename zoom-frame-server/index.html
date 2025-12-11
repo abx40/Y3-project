@@ -172,6 +172,23 @@
             color: var(--color-warning);
         }
 
+        .badge.inactive {
+            background: rgba(120, 120, 120, 0.12);
+            color: var(--color-text-secondary);
+        }
+
+        .mode-badges {
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+            flex-wrap: wrap;
+        }
+
+        .mode-badges .badge {
+            font-size: 11px;
+            padding: 4px 10px;
+        }
+
         .pulse {
             width: 8px;
             height: 8px;
@@ -590,6 +607,12 @@
                                      user.last_probability > 0.5 ? 'Medium Risk' : 'Low Risk';
                     const badgeClass = user.last_probability > 0.7 ? 'danger' : 
                                       user.last_probability > 0.5 ? 'warning' : 'live';
+                    const audioBadge = user.has_audio ?
+                        '<span class="badge live">Audio</span>' :
+                        '<span class="badge inactive">Audio</span>';
+                    const videoBadge = user.frame_count > 0 ?
+                        '<span class="badge live">Video</span>' :
+                        '<span class="badge inactive">Video</span>';
                     
                     div.innerHTML = `
                         <div class="user-info">
@@ -597,6 +620,10 @@
                             <div class="user-details">
                                 <h4>${user.user_id}</h4>
                                 <p>Last seen: ${lastSeen} • ${user.frame_count} frames</p>
+                                <div class="mode-badges">
+                                    ${videoBadge}
+                                    ${audioBadge}
+                                </div>
                             </div>
                         </div>
                         <span class="badge ${badgeClass}">${(user.last_probability * 100).toFixed(1)}%</span>
