@@ -417,6 +417,12 @@
                 <div class="stat-label">Data Points</div>
                 <div class="stat-value" id="dataPoints">--</div>
             </div>
+            <div class="stat-card">
+                <div class="stat-label">Model</div>
+                <div class="stat-value" id="modelName">--</div>
+                <div class="stat-label">Device</div>
+                <div class="stat-value" id="modelDevice">--</div>
+            </div>
         </div>
 
         <div class="grid">
@@ -484,9 +490,11 @@
             users: new Set(),
             threshold: 0.7,
             timeWindow: 60,
+            modelInfo: { model: '--', device: '--' },
 
             init() {
                 this.setupCharts();
+                this.loadInfo();
                 this.startAutoRefresh();
                 this.loadUser();
                 this.loadActiveUsers();
@@ -496,6 +504,18 @@
                 // Initialize both charts
                 this.updateChart('mainChart', [], 'Fake Probability');
                 this.updateChart('smoothChart', [], 'Smoothed Probability');
+            },
+
+            async loadInfo() {
+                try {
+                    const resp = await fetch('http://localhost:8001/info');
+                    if (!resp.ok) return;
+                    this.modelInfo = await resp.json();
+                    document.getElementById('modelName').textContent = this.modelInfo.model || '--';
+                    document.getElementById('modelDevice').textContent = this.modelInfo.device || '--';
+                } catch (error) {
+                    console.error('Error fetching model info:', error);
+                }
             },
 
             async loadUser() {
@@ -826,4 +846,3 @@
     </script>
 </body>
 </html>
-

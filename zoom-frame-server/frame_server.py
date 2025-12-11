@@ -12,7 +12,8 @@ from PIL import Image
 # NEW: optional deepfake model imports
 import torch
 from torchvision import transforms as T
-from torchvision.models import resnet18
+from torchvision.models import resnet18, ResNet18_Weights
+from models.xception_ffpp import Xception as CadeneXception
 from collections import defaultdict, deque
 
 
@@ -50,23 +51,30 @@ fps_count = 0
 
 
 MODEL = None
-DEVICE = torch.device("cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+MODEL_NAME = "unknown"
+MODEL_DEVICE = str(DEVICE)
 PRED_HISTORY = defaultdict(lambda: deque(maxlen=15))  # rolling window per user
-
 
 # Keep a longer, time-stamped history per user for plotting (last ~60s)
 TIME_HISTORY = defaultdict(lambda: deque(maxlen=300))  # (timestamp, fake_prob)
 HISTORY_WINDOW_SEC = 60.0
 
+# Xception (DF40) defaults
+XCEPTION_CKPT = os.getenv("XCEPTION_CKPT", "./models/train_on_df40/xception.pth")
+XCEPTION_IMG_SIZE = 256
+XCEPTION_MEAN = [0.5, 0.5, 0.5]
+XCEPTION_STD = [0.5, 0.5, 0.5]
 
+_IMAGENET_MEAN = [0.485, 0.456, 0.406]
+_IMAGENET_STD = [0.229, 0.224, 0.225]
+
+# Will be set inside load_model depending on which model loads
 TRANSFORM = T.Compose([
-    T.Resize((224, 224)),
+    T.Resize((XCEPTION_IMG_SIZE, XCEPTION_IMG_SIZE)),
     T.ToTensor(),
-    # adjust mean/std to match whatever you train with later
-    T.Normalize(mean=[0.5, 0.5, 0.5],
-                std=[0.5, 0.5, 0.5]),
+    T.Normalize(mean=XCEPTION_MEAN, std=XCEPTION_STD),
 ])
-
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "deepfake_model.pt")
 
@@ -74,33 +82,73 @@ MODEL_PATH = os.path.join(os.path.dirname(__file__), "deepfake_model.pt")
 
 def load_model():
     """ 
-    Initialise a simple baseline deepfake model so the server works
-    even if you don't have a custom `deepfake_model.pt`.
-
-
-    Right now this uses a torchvision ResNet18 with a 2-class head
-    (index 0 = real, index 1 = fake) and random weights.
-    You can later replace this with your own trained model by
-    loading from disk instead of constructing from scratch.
+    Initialise a simple deepfake model.
+    Prefer Xception checkpoint (DF40) if present, otherwise fall back to ResNet18 pretrained.
     """
-    global MODEL
+    global MODEL, TRANSFORM, MODEL_NAME, MODEL_DEVICE
 
 
     if not ENABLE_DEEPFAKE:
         print("[DF] Deepfake detection disabled (ENABLE_DEEPFAKE = False)")
         MODEL = None
+        MODEL_NAME = "disabled"
+        MODEL_DEVICE = str(DEVICE)
         return
 
+    # Try Xception (DF40)
+    if XCEPTION_CKPT and os.path.isfile(XCEPTION_CKPT):
+        try:
+            print(f"[DF] Initialising Xception (DF40) on {DEVICE} ...")
+            model = CadeneXception(num_classes=2, in_chans=3)
+            sd = torch.load(XCEPTION_CKPT, map_location="cpu")
+            if isinstance(sd, dict) and "state_dict" in sd:
+                sd = sd["state_dict"]
+            # strip/rename common prefixes from checkpoints (e.g., module.backbone.)
+            cleaned = {}
+            for k, v in sd.items():
+                orig = k
+                if k.startswith("module.backbone."):
+                    k = k[len("module.backbone."):]
+                elif k.startswith("module."):
+                    k = k[len("module."):]
+                # map last_linear -> fc to align with our class
+                if k.startswith("last_linear."):
+                    k = "fc." + k[len("last_linear."):]
+                cleaned[k] = v
+            missing, unexpected = model.load_state_dict(cleaned, strict=False)
+            if missing or unexpected:
+                print(f"[DF] Xception load warning. Missing: {missing}. Unexpected: {unexpected}.")
+            MODEL = model.to(DEVICE)
+            MODEL.eval()
+            MODEL_NAME = "Xception DF40"
+            MODEL_DEVICE = str(DEVICE)
+            TRANSFORM = T.Compose([
+                T.Resize((XCEPTION_IMG_SIZE, XCEPTION_IMG_SIZE)),
+                T.ToTensor(),
+                T.Normalize(mean=XCEPTION_MEAN, std=XCEPTION_STD),
+            ])
+            print("[DF] Xception model loaded from checkpoint.")
+            return
+        except Exception as e:
+            print(f"[DF] Failed to load Xception checkpoint '{XCEPTION_CKPT}': {e}. Falling back to ResNet18.")
 
+    # Fallback: ResNet18 pretrained backbone
     try:
-        print(f"[DF] Initialising baseline ResNet18 model on {DEVICE} ...")
-        base = resnet18(weights=None)  # random weights for now
+        print(f"[DF] Initialising ResNet18 (ImageNet pretrained) on {DEVICE} ...")
+        base = resnet18(weights=ResNet18_Weights.DEFAULT)
         in_features = base.fc.in_features
         # 2-class head: [real, fake]
         base.fc = torch.nn.Linear(in_features, 2)
         MODEL = base.to(DEVICE)
         MODEL.eval()
-        print("[DF] Baseline ResNet18 model initialised and set to eval()")
+        MODEL_NAME = "ResNet18 ImageNet"
+        MODEL_DEVICE = str(DEVICE)
+        TRANSFORM = T.Compose([
+            T.Resize((224, 224)),
+            T.ToTensor(),
+            T.Normalize(mean=_IMAGENET_MEAN, std=_IMAGENET_STD),
+        ])
+        print("[DF] ResNet18 model initialised and set to eval()")
     except Exception as e:
         print(f"[DF] Failed to initialise model: {e}")
         MODEL = None
@@ -121,7 +169,7 @@ def run_deepfake_inference(user_id: str, y_plane: np.ndarray):
     try:
         # y_plane: HxW uint8
         pil_img = Image.fromarray(y_plane).convert("RGB")
-        x = TRANSFORM(pil_img).unsqueeze(0).to(DEVICE)  # shape: [1,3,224,224]
+        x = TRANSFORM(pil_img).unsqueeze(0).to(DEVICE)
 
 
         with torch.no_grad():
@@ -233,20 +281,46 @@ async def receive_frame(request: Request):
         w = int(width)
         h = int(height)
         arr = np.frombuffer(body, dtype=np.uint8)
+
+        # If dimensions are missing or zero, try to infer common resolutions or square
+        if w <= 0 or h <= 0:
+            candidates = [
+                (640, 360), (1280, 720), (1920, 1080),
+                (256, 256), (224, 224), (299, 299),
+                (512, 512), (320, 240), (480, 270),
+            ]
+            match = next(((cw, ch) for cw, ch in candidates if cw * ch == arr.size), None)
+            if match:
+                w, h = match
+                print(f"[WARN] Dimensions missing; inferring w={w}, h={h} from {arr.size} bytes")
+            else:
+                side = int(np.sqrt(arr.size))
+                if side * side == arr.size:
+                    w = h = side
+                    print(f"[WARN] Dimensions missing; falling back to square {side}x{side}")
+                else:
+                    print(f"[WARN] Invalid dimensions (w={width}, h={height}); skipping inference for this frame")
+                    raise ValueError("Invalid dimensions")
+
         if arr.size == w * h:
             arr = arr.reshape((h, w))
 
+
+            # Center crop to square then infer
+            side = min(h, w)
+            start_y = (h - side) // 2
+            start_x = (w - side) // 2
+            arr_crop = arr[start_y:start_y + side, start_x:start_x + side]
 
             # PNG saving
             if SAVE_PNG:
                 png_filename = filename.replace(".raw", ".png")
                 png_path = os.path.join(FRAME_DIR, png_filename)
-                Image.fromarray(arr, mode="L").save(png_path)
+                Image.fromarray(arr_crop, mode="L").save(png_path)
                 print(f"[PNG] Saved {png_path}")
 
-
             # Deepfake inference
-            fake_prob, smooth_fake_prob = run_deepfake_inference(user_id, arr)
+            fake_prob, smooth_fake_prob = run_deepfake_inference(user_id, arr_crop)
         else:
             print(f"[WARN] Size mismatch: expected {w*h}, got {arr.size}")
     except Exception as e:
@@ -457,6 +531,57 @@ async def root():
         "GET /plot/{user_id}": "Simple SVG plot (legacy)",
         "GET /live/{user_id}": "Auto-refresh plot (legacy)"
     }}
+
+
+# =========================
+# AUDIO INGEST
+# =========================
+
+
+@app.post("/audio")
+async def receive_audio(request: Request):
+    """
+    Receive raw PCM audio from the bot.
+    Expected headers:
+      - X-Sample-Rate
+      - X-Channels
+      - X-User-Id
+    Body is raw PCM bytes (little-endian).
+    """
+    sample_rate = int(request.headers.get("X-Sample-Rate", "16000"))
+    channels = int(request.headers.get("X-Channels", "1"))
+    user_id = request.headers.get("X-User-Id", "unknown")
+
+    body = await request.body()
+    size = len(body)
+
+    safe_user = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in user_id)
+    ts_ms = int(time.time() * 1000)
+    filename = f"audio_{safe_user}_{ts_ms}_{sample_rate}hz_{channels}ch.pcm"
+    filepath = os.path.join(AUDIO_DIR, filename)
+
+    with open(filepath, "wb") as f:
+        f.write(body)
+
+    print(f"[AUDIO] user={user_id} {sample_rate}Hz {channels}ch bytes={size} -> {filepath}")
+
+    return {
+        "status": "ok",
+        "received": size,
+        "sample_rate": sample_rate,
+        "channels": channels,
+        "file": filename,
+    }
+
+
+@app.get("/info")
+async def get_info():
+    return {
+        "model": MODEL_NAME,
+        "device": MODEL_DEVICE,
+        "xception_ckpt": XCEPTION_CKPT,
+        "enable_deepfake": ENABLE_DEEPFAKE,
+    }
 
 
 @app.on_event("startup")
