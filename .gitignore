@@ -1,0 +1,22 @@
+# OS junk
+.DS_Store
+
+# Virtual environments
+.venv/
+**/.venv/
+zoom-token-server/venv/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Logs
+*.log
+*.log.*
+
+# Built assets / node modules (not present, but keep them out)
+node_modules/
+
+# Skip the frame analyzer (maintained separately)
+zoom-frame-server/

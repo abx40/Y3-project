@@ -1,0 +1,2 @@
+videosdk-linux-raw-recording-sample/bin/libvideosdk.so filter=lfs diff=lfs merge=lfs -text
+videosdk-linux-raw-recording-sample/lib/zoom_video_sdk_old/libvideosdk.so filter=lfs diff=lfs merge=lfs -text

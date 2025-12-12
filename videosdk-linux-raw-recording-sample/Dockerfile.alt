@@ -1,0 +1,18 @@
+FROM ubuntu:22.04
+
+# deps
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    build-essential cmake pkg-config git curl \
+    libglib2.0-dev liblzma-dev libxml2-dev libssl-dev libcurl4-openssl-dev \
+    pulseaudio libpulse-dev \
+    qtbase5-dev qtbase5-dev-tools qtmultimedia5-dev libqt5x11extras5-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY . /app/
+
+# IMPORTANT: the original Dockerfile untars lib/qt_libs.tar.gz — we skip that here
+# and just build directly against system Qt.
+RUN rm -rf bin build && cmake -B build && cmake --build build -j
+
+WORKDIR /app/bin

@@ -1,0 +1,6 @@
+docker run --platform=linux/amd64 --rm -it \
+  -v "$PWD/config.txt:/app/bin/config.txt:ro" \
+  --entrypoint /bin/bash \
+  vsdk-1.11.2-on-ubuntu \
+  -lc 'chmod +x /app/src/setup-pulseaudio.sh /app/bin/run.sh; /app/bin/run.sh'
+

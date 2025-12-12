@@ -1,0 +1,38 @@
+[
+{
+  "directory": "/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/build",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I\"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/include\" -I\"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/include/zoom_video_sdk\" -I/opt/homebrew/Cellar/glib/2.84.0_1/include -I/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk/usr/include/ffi -isystem /opt/homebrew/Cellar/glib/2.84.0_1/include/glib-2.0 -isystem /opt/homebrew/Cellar/glib/2.84.0_1/lib/glib-2.0/include -isystem /opt/homebrew/opt/gettext/include -isystem /opt/homebrew/Cellar/pcre2/10.45/include  -std=c++11 -g -g -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk   -std=c++11 -o CMakeFiles/zoom_v-sdk_linux_bot.dir/src/ZoomVideoSDKRawDataPipeDelegate.cpp.o -c \"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/src/ZoomVideoSDKRawDataPipeDelegate.cpp\"",
+  "file": "/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/src/ZoomVideoSDKRawDataPipeDelegate.cpp",
+  "output": "CMakeFiles/zoom_v-sdk_linux_bot.dir/src/ZoomVideoSDKRawDataPipeDelegate.cpp.o"
+},
+{
+  "directory": "/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/build",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I\"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/include\" -I\"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/include/zoom_video_sdk\" -I/opt/homebrew/Cellar/glib/2.84.0_1/include -I/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk/usr/include/ffi -isystem /opt/homebrew/Cellar/glib/2.84.0_1/include/glib-2.0 -isystem /opt/homebrew/Cellar/glib/2.84.0_1/lib/glib-2.0/include -isystem /opt/homebrew/opt/gettext/include -isystem /opt/homebrew/Cellar/pcre2/10.45/include  -std=c++11 -g -g -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk   -std=c++11 -o CMakeFiles/zoom_v-sdk_linux_bot.dir/src/ZoomVideoSDKVirtualAudioMic.cpp.o -c \"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/src/ZoomVideoSDKVirtualAudioMic.cpp\"",
+  "file": "/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/src/ZoomVideoSDKVirtualAudioMic.cpp",
+  "output": "CMakeFiles/zoom_v-sdk_linux_bot.dir/src/ZoomVideoSDKVirtualAudioMic.cpp.o"
+},
+{
+  "directory": "/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/build",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I\"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/include\" -I\"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/include/zoom_video_sdk\" -I/opt/homebrew/Cellar/glib/2.84.0_1/include -I/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk/usr/include/ffi -isystem /opt/homebrew/Cellar/glib/2.84.0_1/include/glib-2.0 -isystem /opt/homebrew/Cellar/glib/2.84.0_1/lib/glib-2.0/include -isystem /opt/homebrew/opt/gettext/include -isystem /opt/homebrew/Cellar/pcre2/10.45/include  -std=c++11 -g -g -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk   -std=c++11 -o CMakeFiles/zoom_v-sdk_linux_bot.dir/src/ZoomVideoSDKVirtualAudioSpeaker.cpp.o -c \"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/src/ZoomVideoSDKVirtualAudioSpeaker.cpp\"",
+  "file": "/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/src/ZoomVideoSDKVirtualAudioSpeaker.cpp",
+  "output": "CMakeFiles/zoom_v-sdk_linux_bot.dir/src/ZoomVideoSDKVirtualAudioSpeaker.cpp.o"
+},
+{
+  "directory": "/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/build",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I\"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/include\" -I\"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/include/zoom_video_sdk\" -I/opt/homebrew/Cellar/glib/2.84.0_1/include -I/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk/usr/include/ffi -isystem /opt/homebrew/Cellar/glib/2.84.0_1/include/glib-2.0 -isystem /opt/homebrew/Cellar/glib/2.84.0_1/lib/glib-2.0/include -isystem /opt/homebrew/opt/gettext/include -isystem /opt/homebrew/Cellar/pcre2/10.45/include  -std=c++11 -g -g -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk   -std=c++11 -o CMakeFiles/zoom_v-sdk_linux_bot.dir/src/ZoomVideoSDKShareSource.cpp.o -c \"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/src/ZoomVideoSDKShareSource.cpp\"",
+  "file": "/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/src/ZoomVideoSDKShareSource.cpp",
+  "output": "CMakeFiles/zoom_v-sdk_linux_bot.dir/src/ZoomVideoSDKShareSource.cpp.o"
+},
+{
+  "directory": "/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/build",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I\"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/include\" -I\"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/include/zoom_video_sdk\" -I/opt/homebrew/Cellar/glib/2.84.0_1/include -I/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk/usr/include/ffi -isystem /opt/homebrew/Cellar/glib/2.84.0_1/include/glib-2.0 -isystem /opt/homebrew/Cellar/glib/2.84.0_1/lib/glib-2.0/include -isystem /opt/homebrew/opt/gettext/include -isystem /opt/homebrew/Cellar/pcre2/10.45/include  -std=c++11 -g -g -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk   -std=c++11 -o CMakeFiles/zoom_v-sdk_linux_bot.dir/src/ZoomVideoSDKVideoSource.cpp.o -c \"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/src/ZoomVideoSDKVideoSource.cpp\"",
+  "file": "/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/src/ZoomVideoSDKVideoSource.cpp",
+  "output": "CMakeFiles/zoom_v-sdk_linux_bot.dir/src/ZoomVideoSDKVideoSource.cpp.o"
+},
+{
+  "directory": "/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/build",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I\"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/include\" -I\"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/include/zoom_video_sdk\" -I/opt/homebrew/Cellar/glib/2.84.0_1/include -I/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk/usr/include/ffi -isystem /opt/homebrew/Cellar/glib/2.84.0_1/include/glib-2.0 -isystem /opt/homebrew/Cellar/glib/2.84.0_1/lib/glib-2.0/include -isystem /opt/homebrew/opt/gettext/include -isystem /opt/homebrew/Cellar/pcre2/10.45/include  -std=c++11 -g -g -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk   -std=c++11 -o CMakeFiles/zoom_v-sdk_linux_bot.dir/src/zoom_v-sdk_linux_bot.cpp.o -c \"/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/src/zoom_v-sdk_linux_bot.cpp\"",
+  "file": "/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/src/zoom_v-sdk_linux_bot.cpp",
+  "output": "CMakeFiles/zoom_v-sdk_linux_bot.dir/src/zoom_v-sdk_linux_bot.cpp.o"
+}
+]

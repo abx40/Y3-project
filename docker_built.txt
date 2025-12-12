@@ -1,0 +1,5 @@
+
+docker build --platform=linux/amd64 --no-cache \
+  -t vsdk-1.11.2-on-ubuntu \
+  -f Dockerfile-Ubuntu/Dockerfile .
+
