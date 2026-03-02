@@ -2,9 +2,18 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from fastapi.responses import HTMLResponse
+import argparse
+import csv
 import os
+import sys
 import time
 import io
+import uuid
+import socket
+import platform
+import subprocess
+import threading
+from pathlib import Path
 import numpy as np
 from PIL import Image
 
@@ -15,8 +24,14 @@ from torchvision import transforms as T
 from torchvision.models import resnet18, ResNet18_Weights
 from models.xception_ffpp import Xception as CadeneXception
 import json
-from models.aasist.AASIST import Model as AASISTModel
+# Audio model disabled for video-only mode.
+# from models.aasist.AASIST import Model as AASISTModel
 from collections import defaultdict, deque
+
+try:
+    import cv2
+except Exception:
+    cv2 = None
 
 
 # =========================
@@ -25,8 +40,8 @@ from collections import defaultdict, deque
 
 
 # Toggle saving of raw and PNG files
-SAVE_RAW = False
-SAVE_PNG = False
+SAVE_RAW = os.getenv("SAVE_RAW", "0").strip().lower() in {"1", "true", "yes", "on"}
+SAVE_PNG = os.getenv("SAVE_PNG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 # Toggle deepfake inference
@@ -56,27 +71,57 @@ MODEL = None
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MODEL_NAME = "unknown"
 MODEL_DEVICE = str(DEVICE)
+MODEL_STRICT_LOAD = False
 PRED_HISTORY = defaultdict(lambda: deque(maxlen=15))  # rolling window per user
 
 # Keep a longer, time-stamped history per user for plotting (last ~60s)
 TIME_HISTORY = defaultdict(lambda: deque(maxlen=300))  # (timestamp, fake_prob)
 HISTORY_WINDOW_SEC = 60.0
 # How long to keep a user “active” after last media (seconds)
-ACTIVITY_TIMEOUT = 1.0
-# Track last audio timestamp per user (seconds)
-AUDIO_LAST = defaultdict(lambda: 0.0)
-# Track last audio fake probability
-AUDIO_FAKE = defaultdict(lambda: None)
-# Audio deepfake (AASIST)
-AASIST_CKPT = os.getenv("AASIST_CKPT", "./models/aasist/aasist_orig.pth")
-AASIST_CONF = os.getenv("AASIST_CONF", "./models/aasist/AASIST.conf")
-AUDIO_MODEL = None
-AUDIO_CFG = {}
-AUDIO_NB_SAMP = 64600
-AUDIO_SR = 16000
+ACTIVITY_TIMEOUT = float(os.getenv("ACTIVITY_TIMEOUT", "5.0"))
+# Audio ingestion/scoring disabled for video-only mode.
+# AUDIO_LAST = defaultdict(lambda: 0.0)
+# AUDIO_FAKE = defaultdict(lambda: None)
+# AUDIO_HISTORY = defaultdict(lambda: deque(maxlen=300))
+# AASIST_CKPT = os.getenv("AASIST_CKPT", "./models/aasist/aasist_orig.pth")
+# AASIST_CONF = os.getenv("AASIST_CONF", "./models/aasist/AASIST.conf")
+# AUDIO_MODEL = None
+# AUDIO_CFG = {}
+# AUDIO_NB_SAMP = 64600
+# AUDIO_SR = 16000
 
 # Track presence events (join/leave) even if no media seen yet
 USERS = {}
+
+# Evaluation run logging defaults (overridden by CLI)
+RUN_ID = None
+SESSION_ID = "default_session"
+RUN_SOURCE = "zoom-bot"  # obs | zoom-bot | file
+RUN_MODEL_NAME = "auto"
+DECISION_THRESHOLD = 0.5
+LOG_BASE_DIR = "logs"
+LABELS_CSV = None
+LABEL_SEGMENTS = []  # list of dict(start, end, gt_label, src, filename)
+LABEL_OVERLAP_WARNED_KEYS = set()
+FACE_CROP_MODE = os.getenv("FACE_CROP_MODE", "on").lower()  # on | off
+FACE_MARGIN = float(os.getenv("FACE_MARGIN", "0.25"))
+# Guardrails for face-crop stability with DF40.
+# - Ignore tiny detections likely to be false positives.
+# - Keep enough context around face by enforcing a minimum crop side ratio.
+FACE_MIN_BBOX_AREA_RATIO = float(os.getenv("FACE_MIN_BBOX_AREA_RATIO", "0.03"))
+FACE_MIN_CROP_SIDE_RATIO = float(os.getenv("FACE_MIN_CROP_SIDE_RATIO", "0.70"))
+FACE_CV2_CASCADE = None
+FACE_DETECTOR_NAME = "none"
+
+# Runtime evaluation state
+RUN_START_MONO = None
+RUN_START_WALL = None
+RUN_DIR = None
+RUN_META_PATH = None
+PRED_LOG_PATH = None
+FRAME_DECISION_IDX = 0
+PARTICIPANT_START_MONO = {}
+PRED_LOG_LOCK = threading.Lock()
 
 
 def _skip_user(user_id: str) -> bool:
@@ -105,34 +150,13 @@ MODEL_PATH = os.path.join(os.path.dirname(__file__), "deepfake_model.pt")
 
 
 def load_aasist_model():
-    """Load AASIST audio anti-spoof model if checkpoint + config are present."""
-    global AUDIO_MODEL, AUDIO_CFG, AUDIO_NB_SAMP, AUDIO_SR
-    if not os.path.isfile(AASIST_CKPT) or not os.path.isfile(AASIST_CONF):
-        print(f"[AUDIO] AASIST assets missing (ckpt={AASIST_CKPT}, conf={AASIST_CONF}); audio scoring disabled")
-        AUDIO_MODEL = None
-        return
-    try:
-        cfg = json.load(open(AASIST_CONF, "r"))
-        model_cfg = cfg.get('model_config', {})
-        AUDIO_CFG = model_cfg
-        AUDIO_NB_SAMP = int(model_cfg.get('nb_samp', 64600))
-        AUDIO_SR = int(model_cfg.get('sample_rate', 16000)) if 'sample_rate' in model_cfg else 16000
-        print(f"[AUDIO] Loading AASIST on {DEVICE} ...")
-        model = AASISTModel(model_cfg)
-        sd = torch.load(AASIST_CKPT, map_location='cpu')
-        missing, unexpected = model.load_state_dict(sd, strict=False)
-        if missing or unexpected:
-            print(f"[AUDIO] Load warning. Missing: {missing}. Unexpected: {unexpected}.")
-        model.eval()
-        model.to(DEVICE)
-        AUDIO_MODEL = model
-        print("[AUDIO] AASIST ready")
-    except Exception as e:
-        print(f"[AUDIO] Failed to load AASIST: {e}")
-        AUDIO_MODEL = None
+    """Audio loading disabled (video-only mode)."""
+    # Audio path intentionally disabled.
+    return
 
 
 def _pad_or_repeat(wav: np.ndarray, target_len: int) -> np.ndarray:
+    # Audio helper retained but unused in video-only mode.
     if len(wav) >= target_len:
         return wav[:target_len]
     # repeat-pad
@@ -142,6 +166,7 @@ def _pad_or_repeat(wav: np.ndarray, target_len: int) -> np.ndarray:
 
 
 def _resample_linear(wav: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:
+    # Audio helper retained but unused in video-only mode.
     if sr_in == sr_out:
         return wav
     if len(wav) < 2:
@@ -151,12 +176,297 @@ def _resample_linear(wav: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:
     t_new = np.linspace(0, len(wav) / sr_in, num=int(len(wav) * sr_out / sr_in), endpoint=False)
     return np.interp(t_new, t_old, wav).astype(np.float32)
 
+
+def init_face_detector():
+    global FACE_CV2_CASCADE, FACE_CROP_MODE, FACE_DETECTOR_NAME
+    FACE_CV2_CASCADE = None
+    FACE_DETECTOR_NAME = "none"
+
+    if FACE_CROP_MODE != "on":
+        print("[FACE] Face crop disabled (--face_crop off)")
+        return
+
+    if cv2 is not None:
+        try:
+            cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+            cascade = cv2.CascadeClassifier(cascade_path)
+            if cascade.empty():
+                raise RuntimeError(f"Failed to load cascade at {cascade_path}")
+            FACE_CV2_CASCADE = cascade
+            FACE_DETECTOR_NAME = "opencv_haar"
+            print("[FACE] Face crop enabled (opencv_haar).")
+            return
+        except Exception as e:
+            print(f"[FACE] OpenCV Haar init failed: {e}")
+
+    print("[FACE] No available face detector; disabling face crop.")
+    FACE_CROP_MODE = "off"
+    FACE_DETECTOR_NAME = "none"
+
+
+def select_inference_crop(gray_frame: np.ndarray):
+    """
+    Returns:
+        crop, face_detected, num_faces, bbox_area, face_crop_size
+    """
+    h, w = gray_frame.shape[:2]
+    num_faces = 0
+    bbox_area = None
+
+    if FACE_CROP_MODE == "on" and FACE_CV2_CASCADE is not None and cv2 is not None:
+        # Haar works on grayscale; choose the largest face.
+        faces = FACE_CV2_CASCADE.detectMultiScale(
+            gray_frame,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(24, 24),
+        )
+        num_faces = int(len(faces))
+        if num_faces > 0:
+            x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+            bbox_area = int(fw * fh)
+            frame_area = max(1, int(w * h))
+            bbox_area_ratio = bbox_area / frame_area
+
+            # Reject tiny detections (often unstable/false positives).
+            if bbox_area_ratio >= FACE_MIN_BBOX_AREA_RATIO:
+                # Build a context-preserving square crop centered on face.
+                cx = x + fw // 2
+                cy = y + fh // 2
+                side_from_bbox = int(max(fw, fh) * (1.0 + 2.0 * FACE_MARGIN))
+                min_side = int(min(w, h) * FACE_MIN_CROP_SIDE_RATIO)
+                side = max(side_from_bbox, min_side)
+                side = min(side, min(w, h))
+
+                x0 = max(0, cx - side // 2)
+                y0 = max(0, cy - side // 2)
+                x1 = x0 + side
+                y1 = y0 + side
+                if x1 > w:
+                    x1 = w
+                    x0 = max(0, x1 - side)
+                if y1 > h:
+                    y1 = h
+                    y0 = max(0, y1 - side)
+
+                face_crop = gray_frame[y0:y1, x0:x1]
+                if face_crop.size > 0:
+                    face_crop_size = f"{x1 - x0}x{y1 - y0}"
+                    return face_crop, 1, num_faces, bbox_area, face_crop_size
+
+    # Fallback to center square crop
+    side = min(h, w)
+    start_y = (h - side) // 2
+    start_x = (w - side) // 2
+    center_crop = gray_frame[start_y:start_y + side, start_x:start_x + side]
+    face_crop_size = f"{side}x{side}"
+    return center_crop, 0, num_faces, bbox_area, face_crop_size
+
+
+PREDICTION_COLUMNS = [
+    "run_id",
+    "session_id",
+    "participant_id",
+    "source",
+    "frame_idx",
+    "t_rel",
+    "t_recv",
+    "t_infer_start",
+    "t_infer_end",
+    "t_decision",
+    "score_raw",
+    "score_smoothed",
+    "pred_label",
+    "threshold",
+    "face_detected",
+    "num_faces",
+    "dropped_frame",
+    "bbox_area",
+    "face_crop_size",
+    "gt_label",
+]
+
+
+def _get_git_commit():
+    try:
+        repo_dir = Path(__file__).resolve().parent
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(repo_dir),
+            text=True,
+        ).strip()
+        return commit or None
+    except Exception:
+        return None
+
+
+def _parse_gt_label(raw_value):
+    val = str(raw_value).strip().lower()
+    if val in {"fake", "1", "true"}:
+        return 1
+    if val in {"real", "0", "false"}:
+        return 0
+    return None
+
+
+def load_label_segments(labels_csv_path):
+    global LABEL_SEGMENTS, LABEL_OVERLAP_WARNED_KEYS
+    LABEL_SEGMENTS = []
+    LABEL_OVERLAP_WARNED_KEYS = set()
+
+    if not labels_csv_path:
+        return
+    if not os.path.isfile(labels_csv_path):
+        print(f"[EVAL] Labels file not found: {labels_csv_path}")
+        return
+
+    parsed = []
+    with open(labels_csv_path, "r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames and {"start", "end"}.issubset(set(reader.fieldnames)):
+            for row in reader:
+                try:
+                    start = float(row.get("start"))
+                    end = float(row.get("end"))
+                except Exception:
+                    continue
+                gt = _parse_gt_label(row.get("real|fake") or row.get("label"))
+                parsed.append({
+                    "start": start,
+                    "end": end,
+                    "gt_label": gt,
+                    "src": row.get("src"),
+                    "filename": row.get("filename"),
+                })
+        else:
+            f.seek(0)
+            rows = csv.reader(f)
+            for row in rows:
+                if len(row) < 3:
+                    continue
+                try:
+                    start = float(row[0])
+                    end = float(row[1])
+                except Exception:
+                    continue
+                gt = _parse_gt_label(row[2])
+                parsed.append({
+                    "start": start,
+                    "end": end,
+                    "gt_label": gt,
+                    "src": row[3] if len(row) > 3 else None,
+                    "filename": row[4] if len(row) > 4 else None,
+                })
+
+    LABEL_SEGMENTS = sorted(parsed, key=lambda x: x["start"])
+    print(f"[EVAL] Loaded {len(LABEL_SEGMENTS)} label segments from {labels_csv_path}")
+
+    # Warn once if labels contain overlaps. Runtime chooses the tightest segment.
+    overlap_count = 0
+    for i in range(1, len(LABEL_SEGMENTS)):
+        prev = LABEL_SEGMENTS[i - 1]
+        cur = LABEL_SEGMENTS[i]
+        if cur["start"] < prev["end"]:
+            overlap_count += 1
+    if overlap_count > 0:
+        print(f"[EVAL] WARNING: labels contain {overlap_count} overlapping segment pairs; using tightest match at inference time.")
+
+
+def gt_label_for_time(t_rel):
+    matches = [seg for seg in LABEL_SEGMENTS if seg["start"] <= t_rel < seg["end"]]
+    if not matches:
+        # Explicit unknown when labels exist but this timestamp is outside segments.
+        return "unknown"
+
+    if len(matches) > 1:
+        # Prefer the tightest segment if labels overlap.
+        key = tuple((m["start"], m["end"], m["gt_label"]) for m in matches)
+        if key not in LABEL_OVERLAP_WARNED_KEYS:
+            LABEL_OVERLAP_WARNED_KEYS.add(key)
+            print(
+                f"[EVAL] WARNING: overlapping labels at t_rel={t_rel:.3f}s; "
+                f"choosing tightest segment among {len(matches)} matches."
+            )
+        matches = sorted(matches, key=lambda m: ((m["end"] - m["start"]), m["start"]))
+    return matches[0]["gt_label"]
+
+
+def _resolve_checkpoint_name():
+    if MODEL_NAME.startswith("Xception"):
+        return XCEPTION_CKPT
+    if MODEL_NAME.startswith("ResNet18"):
+        return "torchvision:ResNet18_Weights.DEFAULT"
+    return None
+
+
+def init_eval_run():
+    global RUN_ID, RUN_START_MONO, RUN_START_WALL
+    global RUN_DIR, RUN_META_PATH, PRED_LOG_PATH, FRAME_DECISION_IDX
+    global PARTICIPANT_START_MONO
+
+    if not RUN_ID:
+        RUN_ID = str(uuid.uuid4())
+
+    RUN_START_MONO = time.monotonic()
+    RUN_START_WALL = time.time()
+    FRAME_DECISION_IDX = 0
+    PARTICIPANT_START_MONO = {}
+
+    run_dir = Path(LOG_BASE_DIR) / RUN_ID
+    run_dir.mkdir(parents=True, exist_ok=True)
+    RUN_DIR = str(run_dir)
+    RUN_META_PATH = str(run_dir / "run_meta.json")
+    PRED_LOG_PATH = str(run_dir / "predictions.csv")
+
+    run_meta = {
+        "run_id": RUN_ID,
+        "session_id": SESSION_ID,
+        "model_name": MODEL_NAME if RUN_MODEL_NAME == "auto" else RUN_MODEL_NAME,
+        "resolved_model_name": MODEL_NAME,
+        "checkpoint": _resolve_checkpoint_name(),
+        "threshold": DECISION_THRESHOLD,
+        "source": RUN_SOURCE,
+        "labels_csv": LABELS_CSV,
+        "host_machine": socket.gethostname(),
+        "platform": platform.platform(),
+        "device": MODEL_DEVICE,
+        "git_commit": _get_git_commit(),
+        "run_start_unix": RUN_START_WALL,
+        "t_rel_definition": "monotonic seconds since first accepted frame per participant",
+        "face_crop_mode": FACE_CROP_MODE,
+        "face_detector": FACE_DETECTOR_NAME,
+        "face_margin": FACE_MARGIN,
+        "face_min_bbox_area_ratio": FACE_MIN_BBOX_AREA_RATIO,
+        "face_min_crop_side_ratio": FACE_MIN_CROP_SIDE_RATIO,
+    }
+
+    with open(RUN_META_PATH, "w", encoding="utf-8") as f:
+        json.dump(run_meta, f, indent=2)
+
+    with open(PRED_LOG_PATH, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=PREDICTION_COLUMNS)
+        writer.writeheader()
+
+    print(f"[EVAL] run_id={RUN_ID}")
+    print(f"[EVAL] prediction_log={PRED_LOG_PATH}")
+    print(f"[EVAL] run_meta={RUN_META_PATH}")
+
+
+def write_prediction_row(row):
+    if not PRED_LOG_PATH:
+        return
+    with PRED_LOG_LOCK:
+        with open(PRED_LOG_PATH, "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=PREDICTION_COLUMNS)
+            writer.writerow(row)
+
+
 def load_model():
     """ 
     Initialise a simple deepfake model.
     Prefer Xception checkpoint (DF40) if present, otherwise fall back to ResNet18 pretrained.
     """
-    global MODEL, TRANSFORM, MODEL_NAME, MODEL_DEVICE
+    global MODEL, TRANSFORM, MODEL_NAME, MODEL_DEVICE, MODEL_STRICT_LOAD
 
 
     if not ENABLE_DEEPFAKE:
@@ -164,6 +474,7 @@ def load_model():
         MODEL = None
         MODEL_NAME = "disabled"
         MODEL_DEVICE = str(DEVICE)
+        MODEL_STRICT_LOAD = False
         return
 
     # Try Xception (DF40)
@@ -174,31 +485,27 @@ def load_model():
             sd = torch.load(XCEPTION_CKPT, map_location="cpu")
             if isinstance(sd, dict) and "state_dict" in sd:
                 sd = sd["state_dict"]
-            # strip/rename common prefixes from checkpoints (e.g., module.backbone.)
+            # Strip common wrappers from checkpoints (e.g., module.backbone.)
             cleaned = {}
             for k, v in sd.items():
-                orig = k
                 if k.startswith("module.backbone."):
                     k = k[len("module.backbone."):]
                 elif k.startswith("module."):
                     k = k[len("module."):]
-                # map last_linear -> fc to align with our class
-                if k.startswith("last_linear."):
-                    k = "fc." + k[len("last_linear."):]
                 cleaned[k] = v
-            missing, unexpected = model.load_state_dict(cleaned, strict=False)
-            if missing or unexpected:
-                print(f"[DF] Xception load warning. Missing: {missing}. Unexpected: {unexpected}.")
+            # For DF40 we want exact loading (source-of-truth for evaluation).
+            model.load_state_dict(cleaned, strict=True)
             MODEL = model.to(DEVICE)
             MODEL.eval()
             MODEL_NAME = "Xception DF40"
             MODEL_DEVICE = str(DEVICE)
+            MODEL_STRICT_LOAD = True
             TRANSFORM = T.Compose([
                 T.Resize((XCEPTION_IMG_SIZE, XCEPTION_IMG_SIZE)),
                 T.ToTensor(),
                 T.Normalize(mean=XCEPTION_MEAN, std=XCEPTION_STD),
             ])
-            print("[DF] Xception model loaded from checkpoint.")
+            print("[DF] Xception model loaded from checkpoint (strict=True).")
             return
         except Exception as e:
             print(f"[DF] Failed to load Xception checkpoint '{XCEPTION_CKPT}': {e}. Falling back to ResNet18.")
@@ -214,6 +521,7 @@ def load_model():
         MODEL.eval()
         MODEL_NAME = "ResNet18 ImageNet"
         MODEL_DEVICE = str(DEVICE)
+        MODEL_STRICT_LOAD = False
         TRANSFORM = T.Compose([
             T.Resize((224, 224)),
             T.ToTensor(),
@@ -312,9 +620,23 @@ async def receive_frame(request: Request):
     height = request.headers.get("X-Height", "0")
     instance = request.headers.get("X-Instance-Id", "0")
     user_id = request.headers.get("X-User-Id", "unknown")
+    pixel_format = request.headers.get("X-Pixel-Format", "").strip().lower()
+    bytes_per_pixel_header = request.headers.get("X-Bytes-Per-Pixel", "").strip()
+    try:
+        bytes_per_pixel = int(bytes_per_pixel_header) if bytes_per_pixel_header else 0
+    except ValueError:
+        bytes_per_pixel = 0
+    participant_id = user_id if user_id not in ("unknown", "mixed") else "single"
+    source = request.headers.get("X-Source", RUN_SOURCE)
 
+    t_recv = time.monotonic()
+    if RUN_START_MONO is None:
+        # Safety fallback if startup hook did not initialize.
+        init_eval_run()
+    if participant_id not in PARTICIPANT_START_MONO:
+        PARTICIPANT_START_MONO[participant_id] = t_recv
 
-    # Raw grayscale frame bytes (Y plane)
+    # Raw frame bytes (legacy Y plane, or RGB/BGR24)
     body = await request.body()
     size = len(body)
 
@@ -345,13 +667,28 @@ async def receive_frame(request: Request):
 
     fake_prob = None
     smooth_fake_prob = None
+    t_infer_start = t_recv
+    t_infer_end = t_recv
+    dropped_frame = 0
+    face_detected = 0
+    num_faces = 0
+    bbox_area = None
+    face_crop_size = None
 
 
-    # Convert raw Y plane into PNG / tensor once
+    # Convert raw frame into grayscale tensor input once.
     try:
         w = int(width)
         h = int(height)
         arr = np.frombuffer(body, dtype=np.uint8)
+
+        gray_formats = {"y", "gray", "gray8", "mono8", "luma", "y8"}
+        rgb_formats = {"rgb", "rgb24", "bgr", "bgr24"}
+        if bytes_per_pixel <= 0:
+            if pixel_format in rgb_formats:
+                bytes_per_pixel = 3
+            elif pixel_format in gray_formats:
+                bytes_per_pixel = 1
 
         # If dimensions are missing or zero, try to infer common resolutions or square
         if w <= 0 or h <= 0:
@@ -360,42 +697,98 @@ async def receive_frame(request: Request):
                 (256, 256), (224, 224), (299, 299),
                 (512, 512), (320, 240), (480, 270),
             ]
-            match = next(((cw, ch) for cw, ch in candidates if cw * ch == arr.size), None)
+            bpp_candidates = [bytes_per_pixel] if bytes_per_pixel in (1, 3) else [1, 3]
+            match = None
+            inferred_bpp = None
+            for bpp in bpp_candidates:
+                match = next(
+                    ((cw, ch) for cw, ch in candidates if cw * ch * bpp == arr.size),
+                    None,
+                )
+                if match:
+                    inferred_bpp = bpp
+                    break
             if match:
                 w, h = match
-                print(f"[WARN] Dimensions missing; inferring w={w}, h={h} from {arr.size} bytes")
+                if inferred_bpp:
+                    bytes_per_pixel = inferred_bpp
+                print(
+                    f"[WARN] Dimensions missing; inferring w={w}, h={h}, "
+                    f"bpp={bytes_per_pixel} from {arr.size} bytes"
+                )
             else:
-                side = int(np.sqrt(arr.size))
-                if side * side == arr.size:
+                bpp_for_square = bytes_per_pixel if bytes_per_pixel in (1, 3) else 1
+                if arr.size % bpp_for_square != 0:
+                    bpp_for_square = 1
+                pixels = arr.size // bpp_for_square
+                side = int(np.sqrt(pixels))
+                if side * side == pixels:
                     w = h = side
-                    print(f"[WARN] Dimensions missing; falling back to square {side}x{side}")
+                    bytes_per_pixel = bpp_for_square
+                    print(
+                        f"[WARN] Dimensions missing; falling back to square "
+                        f"{side}x{side}, bpp={bytes_per_pixel}"
+                    )
                 else:
                     print(f"[WARN] Invalid dimensions (w={width}, h={height}); skipping inference for this frame")
                     raise ValueError("Invalid dimensions")
 
-        if arr.size == w * h:
-            arr = arr.reshape((h, w))
+        expected_gray = w * h
+        expected_rgb = w * h * 3
+        gray_img = None
 
+        # Legacy grayscale payload
+        if arr.size == expected_gray and (bytes_per_pixel in (0, 1)):
+            gray_img = arr.reshape((h, w))
+        # RGB/BGR payload
+        elif arr.size == expected_rgb and (bytes_per_pixel in (0, 3)):
+            rgb_img = arr.reshape((h, w, 3))
+            if pixel_format in {"bgr", "bgr24"}:
+                if cv2 is not None:
+                    gray_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
+                else:
+                    r = rgb_img[:, :, 2].astype(np.float32)
+                    g = rgb_img[:, :, 1].astype(np.float32)
+                    b = rgb_img[:, :, 0].astype(np.float32)
+                    gray_img = np.clip(0.299 * r + 0.587 * g + 0.114 * b, 0, 255).astype(np.uint8)
+            else:
+                if cv2 is not None:
+                    gray_img = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)
+                else:
+                    r = rgb_img[:, :, 0].astype(np.float32)
+                    g = rgb_img[:, :, 1].astype(np.float32)
+                    b = rgb_img[:, :, 2].astype(np.float32)
+                    gray_img = np.clip(0.299 * r + 0.587 * g + 0.114 * b, 0, 255).astype(np.uint8)
 
-            # Center crop to square then infer
-            side = min(h, w)
-            start_y = (h - side) // 2
-            start_x = (w - side) // 2
-            arr_crop = arr[start_y:start_y + side, start_x:start_x + side]
+        if gray_img is not None:
+
+            # Face crop (if enabled) with center-crop fallback.
+            arr_crop, face_detected, num_faces, bbox_area, face_crop_size = select_inference_crop(gray_img)
 
             # PNG saving
             if SAVE_PNG:
-                png_filename = filename.replace(".raw", ".png")
-                png_path = os.path.join(FRAME_DIR, png_filename)
-                Image.fromarray(arr_crop, mode="L").save(png_path)
-                print(f"[PNG] Saved {png_path}")
+                png_full_filename = filename.replace(".raw", "_full.png")
+                png_crop_filename = filename.replace(".raw", "_crop.png")
+                png_full_path = os.path.join(FRAME_DIR, png_full_filename)
+                png_crop_path = os.path.join(FRAME_DIR, png_crop_filename)
+                Image.fromarray(gray_img, mode="L").save(png_full_path)
+                Image.fromarray(arr_crop, mode="L").save(png_crop_path)
+                print(f"[PNG] Saved full={png_full_path} crop={png_crop_path}")
 
             # Deepfake inference
+            t_infer_start = time.monotonic()
             fake_prob, smooth_fake_prob = run_deepfake_inference(user_id, arr_crop)
+            t_infer_end = time.monotonic()
         else:
-            print(f"[WARN] Size mismatch: expected {w*h}, got {arr.size}")
+            print(
+                f"[WARN] Size mismatch: expected {expected_gray} (gray) or "
+                f"{expected_rgb} (rgb24), got {arr.size}"
+            )
+            dropped_frame = 1
     except Exception as e:
         print(f"[ERR] Frame processing failed: {e}")
+        dropped_frame = 1
+        t_infer_end = time.monotonic()
 
 
     # Save raw grayscale bytes
@@ -418,6 +811,40 @@ async def receive_frame(request: Request):
 
 
     # Response now includes optional probabilities
+    t_decision = time.monotonic()
+    t_rel_zero = PARTICIPANT_START_MONO.get(participant_id)
+    if t_rel_zero is None:
+        t_rel_zero = RUN_START_MONO if RUN_START_MONO is not None else t_decision
+    t_rel = t_decision - t_rel_zero
+    score_for_label = smooth_fake_prob if smooth_fake_prob is not None else fake_prob
+    pred_label = int(score_for_label >= DECISION_THRESHOLD) if score_for_label is not None else None
+    gt_label = gt_label_for_time(t_rel) if LABEL_SEGMENTS else None
+
+    global FRAME_DECISION_IDX
+    FRAME_DECISION_IDX += 1
+    write_prediction_row({
+        "run_id": RUN_ID,
+        "session_id": SESSION_ID,
+        "participant_id": participant_id,
+        "source": source,
+        "frame_idx": FRAME_DECISION_IDX,
+        "t_rel": round(t_rel, 6),
+        "t_recv": round(t_recv, 6),
+        "t_infer_start": round(t_infer_start, 6),
+        "t_infer_end": round(t_infer_end, 6),
+        "t_decision": round(t_decision, 6),
+        "score_raw": fake_prob,
+        "score_smoothed": smooth_fake_prob,
+        "pred_label": pred_label,
+        "threshold": DECISION_THRESHOLD,
+        "face_detected": face_detected,
+        "num_faces": num_faces,
+        "dropped_frame": dropped_frame,
+        "bbox_area": bbox_area,
+        "face_crop_size": face_crop_size,
+        "gt_label": gt_label,
+    })
+
     return {
         "status": "ok",
         "received": size,
@@ -429,61 +856,43 @@ async def receive_frame(request: Request):
 @app.get("/data/{user_id}")
 async def get_user_data(user_id: str, window: int = 60):
     """
-    NEW ENDPOINT: Get detection data for a specific user in JSON format
-    for the frontend dashboard.
-    
-    Query params:
-        window: time window in seconds (default 60)
-    
-    Returns:
-        {
-            "raw": [{"timestamp": ms, "probability": 0.0-1.0}, ...],
-            "smoothed": [{"timestamp": ms, "probability": 0.0-1.0}, ...]
-        }
+    Get detection data for a specific user in JSON format (video-only).
     """
     hist = list(TIME_HISTORY.get(user_id, []))
-    
+
     if not hist:
         return {"raw": [], "smoothed": []}
-    
+
     # Filter by time window
     now_t = time.time()
     cutoff_time = now_t - window
     filtered = [(t, p) for (t, p) in hist if t >= cutoff_time]
-    
-    # Build raw data points
+
+    # Video raw
     raw_data = [
-        {
-            "timestamp": int(t * 1000),  # Convert to milliseconds
-            "probability": round(p, 4)
-        }
+        {"timestamp": int(t * 1000), "probability": round(p, 4)}
         for (t, p) in filtered
     ]
-    
-    # Calculate smoothed data (rolling average over last 15 points)
+
+    # Video smoothed
     smoothed_data = []
     smooth_window = 15
-    
     for i, (t, p) in enumerate(filtered):
         start_idx = max(0, i - smooth_window + 1)
         window_probs = [prob for (_, prob) in filtered[start_idx:i+1]]
         smooth_prob = sum(window_probs) / len(window_probs)
-        
-        smoothed_data.append({
-            "timestamp": int(t * 1000),
-            "probability": round(smooth_prob, 4)
-        })
-    
+        smoothed_data.append({"timestamp": int(t * 1000), "probability": round(smooth_prob, 4)})
+
     return {
         "raw": raw_data,
-        "smoothed": smoothed_data
+        "smoothed": smoothed_data,
     }
 
 
 @app.get("/users")
 async def get_active_users():
     """
-    NEW ENDPOINT: Get list of all users with recent activity (frames/audio) OR presence pings.
+    Get list of all users with recent video activity OR presence pings.
     """
     now_t = time.time()
     user_map = {}
@@ -498,13 +907,10 @@ async def get_active_users():
             "last_probability": 0.0,
             "avg_probability": 0.0,
             "frame_count": 0,
-            "has_audio": False,
-            "last_audio": None,
             "last_event": meta.get("last_event"),
-            "last_audio_fake": AUDIO_FAKE.get(user_id),
         }
 
-    # Merge in media activity (frames/audio)
+    # Merge in video activity
     for user_id, hist in TIME_HISTORY.items():
         if _skip_user(user_id):
             continue
@@ -515,8 +921,6 @@ async def get_active_users():
             continue  # stale
 
         avg_prob = sum(p for (_, p) in hist) / len(hist)
-        last_audio = AUDIO_LAST.get(user_id, 0.0)
-        has_audio = (now_t - last_audio) < ACTIVITY_TIMEOUT if last_audio else False
 
         entry = user_map.get(user_id, {
             "user_id": user_id,
@@ -524,42 +928,13 @@ async def get_active_users():
             "last_probability": 0.0,
             "avg_probability": 0.0,
             "frame_count": 0,
-            "has_audio": False,
-            "last_audio": None,
             "last_event": None,
-            "last_audio_fake": AUDIO_FAKE.get(user_id),
         })
 
         entry["last_seen"] = int(max(entry.get("last_seen", 0) / 1000.0, last_time) * 1000)
         entry["last_probability"] = round(last_prob, 4)
         entry["avg_probability"] = round(avg_prob, 4)
         entry["frame_count"] = len(hist)
-        entry["has_audio"] = has_audio
-        entry["last_audio"] = int(last_audio * 1000) if last_audio else None
-        entry["last_audio_fake"] = AUDIO_FAKE.get(user_id, entry.get("last_audio_fake"))
-        user_map[user_id] = entry
-
-    # Add audio-only users (no frames yet)
-    for user_id, last_audio in AUDIO_LAST.items():
-        if _skip_user(user_id):
-            continue
-        if not last_audio:
-            continue
-        entry = user_map.get(user_id, {
-            "user_id": user_id,
-            "last_seen": int(last_audio * 1000),
-            "last_probability": 0.0,
-            "avg_probability": 0.0,
-            "frame_count": 0,
-            "has_audio": False,
-            "last_audio": None,
-            "last_event": None,
-            "last_audio_fake": AUDIO_FAKE.get(user_id),
-        })
-        entry["last_seen"] = int(max(entry.get("last_seen", 0) / 1000.0, last_audio) * 1000)
-        entry["has_audio"] = (now_t - last_audio) < ACTIVITY_TIMEOUT
-        entry["last_audio"] = int(last_audio * 1000)
-        entry["last_audio_fake"] = AUDIO_FAKE.get(user_id, entry.get("last_audio_fake"))
         user_map[user_id] = entry
 
     # Return as list (most recent first)
@@ -667,57 +1042,12 @@ async def root():
 
 
 # =========================
-# AUDIO INGEST
+# AUDIO INGEST (DISABLED)
 # =========================
-
-
-@app.post("/audio")
-async def receive_audio(request: Request):
-    """
-    Receive raw PCM audio from the bot.
-    Expected headers:
-      - X-Sample-Rate
-      - X-Channels
-      - X-User-Id
-    Body is raw PCM bytes (little-endian).
-    """
-    sample_rate = int(request.headers.get("X-Sample-Rate", "16000"))
-    channels = int(request.headers.get("X-Channels", "1"))
-    user_id = request.headers.get("X-User-Id", "unknown")
-
-    body = await request.body()
-    size = len(body)
-
-    fake_prob = None
-    if AUDIO_MODEL is not None and size > 0:
-        try:
-            wav = np.frombuffer(body, dtype=np.int16).astype(np.float32) / 32768.0
-            if channels > 1 and len(wav) % channels == 0:
-                wav = wav.reshape(-1, channels)[:, 0]
-            wav = _resample_linear(wav, sample_rate, AUDIO_SR)
-            wav = _pad_or_repeat(wav, AUDIO_NB_SAMP)
-            tensor = torch.from_numpy(wav).unsqueeze(0).to(DEVICE)
-            with torch.inference_mode():
-                _, out = AUDIO_MODEL(tensor)
-                probs = torch.softmax(out, dim=1)
-                fake_prob = float(probs[0, 1].item())
-        except Exception as e:
-            print(f"[AUDIO] inference error for user {user_id}: {e}")
-            fake_prob = None
-
-    # No file writing; just log receipt.
-    print(f"[AUDIO] user={user_id} {sample_rate}Hz {channels}ch bytes={size} (not saved) fake_prob={fake_prob}")
-    AUDIO_LAST[user_id] = time.time()
-    AUDIO_FAKE[user_id] = fake_prob
-
-    return {
-        "status": "ok",
-        "received": size,
-        "sample_rate": sample_rate,
-        "channels": channels,
-        "file": None,
-        "fake_prob": fake_prob,
-    }
+# Audio ingest endpoint intentionally commented out for video-only mode.
+# @app.post("/audio")
+# async def receive_audio(request: Request):
+#     return {"status": "disabled", "reason": "audio path is commented out (video-only mode)"}
 
 
 @app.post("/presence")
@@ -740,8 +1070,20 @@ async def get_info():
     return {
         "model": MODEL_NAME,
         "device": MODEL_DEVICE,
+        "model_strict_load": MODEL_STRICT_LOAD,
+        "python_executable": sys.executable,
         "xception_ckpt": XCEPTION_CKPT,
         "enable_deepfake": ENABLE_DEEPFAKE,
+        "save_raw": SAVE_RAW,
+        "save_png": SAVE_PNG,
+        "run_id": RUN_ID,
+        "session_id": SESSION_ID,
+        "threshold": DECISION_THRESHOLD,
+        "face_crop_mode": FACE_CROP_MODE,
+        "face_detector": FACE_DETECTOR_NAME,
+        "face_margin": FACE_MARGIN,
+        "face_min_bbox_area_ratio": FACE_MIN_BBOX_AREA_RATIO,
+        "face_min_crop_side_ratio": FACE_MIN_CROP_SIDE_RATIO,
     }
 
 
@@ -749,13 +1091,55 @@ async def get_info():
 async def startup_event():
     # Ensure the model is loaded inside the uvicorn worker process
     load_model()
-    load_aasist_model()
+    # load_aasist_model()  # audio path disabled (video-only mode)
+    init_face_detector()
+    load_label_segments(LABELS_CSV)
+    init_eval_run()
+
+
+def parse_cli_args():
+    parser = argparse.ArgumentParser(description="Zoom frame server with evaluation logging")
+    parser.add_argument("--run_id", type=str, default=None, help="Optional run id; generated if omitted.")
+    parser.add_argument("--session_id", type=str, default="default_session", help="Session name, e.g. session2_mix.")
+    parser.add_argument("--labels_csv", type=str, default=None, help="Optional labels CSV for GT alignment.")
+    parser.add_argument("--log_dir", type=str, default="logs", help="Directory where logs/<run_id>/... are written.")
+    parser.add_argument("--model_name", type=str, default="auto", help="Model tag for metadata (e.g. DF40).")
+    parser.add_argument("--threshold", type=float, default=0.5, help="Decision threshold for pred_label.")
+    parser.add_argument("--source", type=str, default="zoom-bot", choices=["obs", "zoom-bot", "file"], help="Source tag in prediction logs.")
+    parser.add_argument("--face_crop", type=str, default="on", choices=["on", "off"], help="Enable face detection crop before inference.")
+    parser.add_argument("--face_min_confidence", type=float, default=0.5, help="Deprecated: ignored (detector is OpenCV Haar only).")
+    parser.add_argument("--face_margin", type=float, default=FACE_MARGIN, help="Relative margin around detected face bbox when face crop is on.")
+    parser.add_argument("--face_min_bbox_area_ratio", type=float, default=FACE_MIN_BBOX_AREA_RATIO, help="Minimum face bbox area ratio (bbox_area/frame_area) to accept detection.")
+    parser.add_argument("--face_min_crop_side_ratio", type=float, default=FACE_MIN_CROP_SIDE_RATIO, help="Minimum crop side ratio relative to min(frame_width, frame_height).")
+    parser.add_argument("--save_raw", type=str, default=("on" if SAVE_RAW else "off"), choices=["on", "off"], help="Save incoming raw Y frames to frames/.")
+    parser.add_argument("--save_png", type=str, default=("on" if SAVE_PNG else "off"), choices=["on", "off"], help="Save full and cropped PNG frames to frames/.")
+    parser.add_argument("--host", type=str, default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8001)
+    return parser.parse_args()
+
+
+def apply_cli_config(args):
+    global RUN_ID, SESSION_ID, LABELS_CSV, LOG_BASE_DIR
+    global RUN_MODEL_NAME, DECISION_THRESHOLD, RUN_SOURCE
+    global FACE_CROP_MODE, FACE_MARGIN, FACE_MIN_BBOX_AREA_RATIO, FACE_MIN_CROP_SIDE_RATIO
+    global SAVE_RAW, SAVE_PNG
+
+    RUN_ID = args.run_id
+    SESSION_ID = args.session_id
+    LABELS_CSV = args.labels_csv
+    LOG_BASE_DIR = args.log_dir
+    RUN_MODEL_NAME = args.model_name
+    DECISION_THRESHOLD = float(args.threshold)
+    RUN_SOURCE = args.source
+    FACE_CROP_MODE = args.face_crop
+    FACE_MARGIN = max(0.0, float(args.face_margin))
+    FACE_MIN_BBOX_AREA_RATIO = min(1.0, max(0.0, float(args.face_min_bbox_area_ratio)))
+    FACE_MIN_CROP_SIDE_RATIO = min(1.0, max(0.0, float(args.face_min_crop_side_ratio)))
+    SAVE_RAW = (args.save_raw == "on")
+    SAVE_PNG = (args.save_png == "on")
 
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "frame_server:app",
-        host="0.0.0.0",
-        port=8001,
-        reload=False,
-    )
+    cli_args = parse_cli_args()
+    apply_cli_config(cli_args)
+    uvicorn.run(app, host=cli_args.host, port=cli_args.port, reload=False)

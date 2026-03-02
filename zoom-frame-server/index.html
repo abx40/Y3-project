@@ -396,7 +396,7 @@
             <div class="control-row">
                 <div>
                     <label for="userSelect">User ID:</label>
-                    <input type="text" id="userSelect" placeholder="Enter user ID" value="user1">
+                    <input type="text" id="userSelect" placeholder="Enter user ID">
                 </div>
                 <div>
                     <label for="timeWindow">Time Window:</label>
@@ -439,6 +439,8 @@
                 <div class="stat-value" id="modelName">--</div>
                 <div class="stat-label">Device</div>
                 <div class="stat-value" id="modelDevice">--</div>
+                <div class="stat-label">Face Detection</div>
+                <div class="stat-value" id="faceCropMode">--</div>
             </div>
         </div>
 
@@ -498,16 +500,20 @@
     <div class="tooltip" id="tooltip"></div>
 
     <script>
+        const API_BASE = `${window.location.protocol === 'file:' ? 'http:' : window.location.protocol}//${window.location.hostname || 'localhost'}:8001`;
         const app = {
-            currentUser: 'user1',
+            currentUser: '',
             autoRefresh: true,
             refreshInterval: null,
             data: [],
             smoothData: [],
+            // audioData/audioSmooth disabled for video-only mode.
+            // audioData: [],
+            // audioSmooth: [],
             users: new Set(),
             threshold: 0.7,
             timeWindow: 60,
-            modelInfo: { model: '--', device: '--' },
+            modelInfo: { model: '--', device: '--', face_crop_mode: '--' },
 
             init() {
                 this.setupCharts();
@@ -525,11 +531,17 @@
 
             async loadInfo() {
                 try {
-                    const resp = await fetch('http://localhost:8001/info');
+                    const resp = await fetch(`${API_BASE}/info`);
                     if (!resp.ok) return;
                     this.modelInfo = await resp.json();
                     document.getElementById('modelName').textContent = this.modelInfo.model || '--';
                     document.getElementById('modelDevice').textContent = this.modelInfo.device || '--';
+                    const mode = (this.modelInfo.face_crop_mode || '--').toLowerCase();
+                    document.getElementById('faceCropMode').textContent = mode === 'on' ? 'ON' : (mode === 'off' ? 'OFF' : '--');
+                    if (typeof this.modelInfo.threshold === 'number') {
+                        this.threshold = this.modelInfo.threshold;
+                        document.getElementById('threshold').value = this.modelInfo.threshold;
+                    }
                 } catch (error) {
                     console.error('Error fetching model info:', error);
                 }
@@ -547,9 +559,12 @@
             },
 
             async fetchData() {
+                if (!this.currentUser || !this.currentUser.trim()) {
+                    return;
+                }
                 try {
                     // Fetch real data from your FastAPI server
-                    const url = `http://localhost:8001/data/${this.currentUser}?window=${this.timeWindow}`;
+                    const url = `${API_BASE}/data/${encodeURIComponent(this.currentUser)}?window=${this.timeWindow}`;
                     const response = await fetch(url);
                     
                     if (!response.ok) {
@@ -560,6 +575,9 @@
                     
                     this.data = data.raw || [];
                     this.smoothData = data.smoothed || [];
+                    // Audio series disabled for video-only mode.
+                    // this.audioData = data.audio_raw || [];
+                    // this.audioSmooth = data.audio_smoothed || [];
                     
                     this.updateUI();
                 } catch (error) {
@@ -570,7 +588,7 @@
 
             async loadActiveUsers() {
                 try {
-                    const response = await fetch('http://localhost:8001/users');
+                    const response = await fetch(`${API_BASE}/users`);
                     if (!response.ok) return;
                     
                     const data = await response.json();
@@ -593,6 +611,13 @@
                 }
                 
                 userList.innerHTML = '';
+                const userIds = users.map(u => u.user_id);
+                if (!this.currentUser || !userIds.includes(this.currentUser)) {
+                    this.currentUser = users[0].user_id;
+                    document.getElementById('userSelect').value = this.currentUser;
+                    this.fetchData();
+                }
+
                 users.forEach(user => {
                     const div = document.createElement('div');
                     div.className = 'user-item' + (user.user_id === this.currentUser ? ' selected' : '');
@@ -607,9 +632,6 @@
                                      user.last_probability > 0.5 ? 'Medium Risk' : 'Low Risk';
                     const badgeClass = user.last_probability > 0.7 ? 'danger' : 
                                       user.last_probability > 0.5 ? 'warning' : 'live';
-                    const audioBadge = user.has_audio ?
-                        '<span class="badge live">Audio</span>' :
-                        '<span class="badge inactive">Audio</span>';
                     const videoBadge = user.frame_count > 0 ?
                         '<span class="badge live">Video</span>' :
                         '<span class="badge inactive">Video</span>';
@@ -622,7 +644,6 @@
                                 <p>Last seen: ${lastSeen} • ${user.frame_count} frames</p>
                                 <div class="mode-badges">
                                     ${videoBadge}
-                                    ${audioBadge}
                                 </div>
                             </div>
                         </div>
@@ -675,7 +696,7 @@
                 }
             },
 
-            updateChart(svgId, data, label, color = '#218D8D') {
+            updateChart(svgId, data, label, color = '#218D8D', extraData = [], extraColor = '#A84B2F') {
                 const svg = document.getElementById(svgId);
                 svg.innerHTML = '';
 
@@ -685,7 +706,7 @@
                 const chartWidth = width - padding.left - padding.right;
                 const chartHeight = height - padding.top - padding.bottom;
 
-                if (data.length === 0) {
+                if (data.length === 0 && extraData.length === 0) {
                     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                     text.setAttribute('x', width / 2);
                     text.setAttribute('y', height / 2);
@@ -697,7 +718,8 @@
                 }
 
                 // Create scales
-                const times = data.map(d => d.timestamp);
+                const allPoints = [...data, ...extraData];
+                const times = allPoints.map(d => d.timestamp);
                 const minTime = Math.min(...times);
                 const maxTime = Math.max(...times);
                 const timeRange = maxTime - minTime || 1;
@@ -739,44 +761,74 @@
                     svg.appendChild(thresholdLine);
                 }
 
-                // Draw area fill
-                const areaPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                let areaD = `M ${xScale(data[0].timestamp)} ${yScale(0)}`;
-                data.forEach((d, i) => {
-                    areaD += ` L ${xScale(d.timestamp)} ${yScale(d.probability)}`;
-                });
-                areaD += ` L ${xScale(data[data.length - 1].timestamp)} ${yScale(0)} Z`;
-                areaPath.setAttribute('d', areaD);
-                areaPath.setAttribute('fill', color);
-                areaPath.setAttribute('class', 'area-fill');
-                svg.appendChild(areaPath);
+                if (data.length > 0) {
+                    // Draw area fill for primary series
+                    const areaPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    let areaD = `M ${xScale(data[0].timestamp)} ${yScale(0)}`;
+                    data.forEach((d) => {
+                        areaD += ` L ${xScale(d.timestamp)} ${yScale(d.probability)}`;
+                    });
+                    areaD += ` L ${xScale(data[data.length - 1].timestamp)} ${yScale(0)} Z`;
+                    areaPath.setAttribute('d', areaD);
+                    areaPath.setAttribute('fill', color);
+                    areaPath.setAttribute('class', 'area-fill');
+                    svg.appendChild(areaPath);
 
-                // Draw line
-                const linePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                let pathD = `M ${xScale(data[0].timestamp)} ${yScale(data[0].probability)}`;
-                data.forEach((d, i) => {
-                    if (i > 0) {
-                        pathD += ` L ${xScale(d.timestamp)} ${yScale(d.probability)}`;
-                    }
-                });
-                linePath.setAttribute('d', pathD);
-                linePath.setAttribute('stroke', color);
-                linePath.setAttribute('class', 'chart-line');
-                svg.appendChild(linePath);
+                    // Draw primary line
+                    const linePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    let pathD = `M ${xScale(data[0].timestamp)} ${yScale(data[0].probability)}`;
+                    data.forEach((d, i) => {
+                        if (i > 0) {
+                            pathD += ` L ${xScale(d.timestamp)} ${yScale(d.probability)}`;
+                        }
+                    });
+                    linePath.setAttribute('d', pathD);
+                    linePath.setAttribute('stroke', color);
+                    linePath.setAttribute('class', 'chart-line');
+                    svg.appendChild(linePath);
 
-                // Draw data points
-                data.forEach((d, i) => {
-                    if (i % 3 === 0 || i === data.length - 1) { // Show every 3rd point + last
-                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                        circle.setAttribute('cx', xScale(d.timestamp));
-                        circle.setAttribute('cy', yScale(d.probability));
-                        circle.setAttribute('fill', color);
-                        circle.setAttribute('class', 'data-point');
-                        circle.addEventListener('mouseenter', (e) => this.showTooltip(e, d));
-                        circle.addEventListener('mouseleave', () => this.hideTooltip());
-                        svg.appendChild(circle);
-                    }
-                });
+                    // Draw primary data points
+                    data.forEach((d, i) => {
+                        if (i % 3 === 0 || i === data.length - 1) {
+                            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            circle.setAttribute('cx', xScale(d.timestamp));
+                            circle.setAttribute('cy', yScale(d.probability));
+                            circle.setAttribute('fill', color);
+                            circle.setAttribute('class', 'data-point');
+                            circle.addEventListener('mouseenter', (e) => this.showTooltip(e, d));
+                            circle.addEventListener('mouseleave', () => this.hideTooltip());
+                            svg.appendChild(circle);
+                        }
+                    });
+                }
+
+                // Draw extra series (audio) as line only
+                if (extraData.length > 0) {
+                    const extraPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    let extraD = `M ${xScale(extraData[0].timestamp)} ${yScale(extraData[0].probability)}`;
+                    extraData.forEach((d, i) => {
+                        if (i > 0) {
+                            extraD += ` L ${xScale(d.timestamp)} ${yScale(d.probability)}`;
+                        }
+                    });
+                    extraPath.setAttribute('d', extraD);
+                    extraPath.setAttribute('stroke', extraColor);
+                    extraPath.setAttribute('class', 'chart-line');
+                    svg.appendChild(extraPath);
+
+                    extraData.forEach((d, i) => {
+                        if (i % 3 === 0 || i === extraData.length - 1) {
+                            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            circle.setAttribute('cx', xScale(d.timestamp));
+                            circle.setAttribute('cy', yScale(d.probability));
+                            circle.setAttribute('fill', extraColor);
+                            circle.setAttribute('class', 'data-point');
+                            circle.addEventListener('mouseenter', (e) => this.showTooltip(e, d));
+                            circle.addEventListener('mouseleave', () => this.hideTooltip());
+                            svg.appendChild(circle);
+                        }
+                    });
+                }
 
                 // Draw axes
                 const xAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
