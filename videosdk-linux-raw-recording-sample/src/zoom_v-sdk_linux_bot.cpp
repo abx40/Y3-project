@@ -61,6 +61,9 @@ bool sendRawVideo = false;
 bool sendRawAudio = false;
 bool sendRawShare = false;
 
+// Hard kill-switch: keep bot in video-only mode.
+const bool AUDIO_PIPELINE_ENABLED = false;
+
 
 // ----------------------------
 // Audio forwarding helpers
@@ -155,6 +158,11 @@ void send_audio_http(
 	const char* userId,
 	bool isMixed)
 {
+	if (!AUDIO_PIPELINE_ENABLED)
+	{
+		return;
+	}
+
 	if (!buffer || length <= 0 || sampleRate <= 0 || channels <= 0)
 	{
 		return;
@@ -236,7 +244,7 @@ public:
 	{
 		printf("Joined session successfully\n");
 
-		if (sendRawAudio) {
+		if (AUDIO_PIPELINE_ENABLED && sendRawAudio) {
 			//needed for audio
 			IZoomVideoSDKAudioHelper* m_pAudiohelper = video_sdk_obj->getAudioHelper();
 			if (m_pAudiohelper) {
@@ -339,7 +347,7 @@ public:
 
 	virtual void onUserAudioStatusChanged(IZoomVideoSDKAudioHelper* pAudioHelper,
 		IVideoSDKVector<IZoomVideoSDKUser*>* userList) {
-		if (getRawAudio) {
+		if (AUDIO_PIPELINE_ENABLED && getRawAudio) {
 			IZoomVideoSDKAudioHelper* m_pAudiohelper = video_sdk_obj->getAudioHelper();
 			if (m_pAudiohelper) {
 				//needed for getting raw audio
@@ -396,7 +404,7 @@ public:
 	}
 
 	virtual void onMixedAudioRawDataReceived(AudioRawData* data_) {
-		if (getRawAudio) {
+		if (AUDIO_PIPELINE_ENABLED && getRawAudio) {
 			std::string filename = "output.pcm";
 			printf("onMixedAudioRawDataReceived\n");
 			if (data_) {
@@ -419,7 +427,7 @@ public:
 	};
 
 	virtual void onOneWayAudioRawDataReceived(AudioRawData* data_, IZoomVideoSDKUser* pUser) {
-		if (getRawAudio) {
+		if (AUDIO_PIPELINE_ENABLED && getRawAudio) {
 			std::string filename = pUser->getUserID();
 			std::string extension = ".pcm";
 			filename.append(extension);
@@ -582,7 +590,7 @@ void joinVideoSDKSession(std::string& session_name, std::string& session_psw, st
 		//nothing much to do before joining session
 	}
 
-	if (getRawAudio) {
+	if (AUDIO_PIPELINE_ENABLED && getRawAudio) {
 		//this code to load virtualaudiospeaker is needed if you are using headless linux, or linux which does not come with soundcard.
 		//if you do not wish to load virtualaudiospeaker, you can alternatively install `apt install pulseaudio` on your linux distro
 		//ZoomVideoSDKVirtualAudioSpeaker* vSpeaker  =new ZoomVideoSDKVirtualAudioSpeaker();
@@ -606,7 +614,7 @@ void joinVideoSDKSession(std::string& session_name, std::string& session_psw, st
 		//nothing much to do before joining session
 	}
 
-	if (sendRawAudio) {
+	if (AUDIO_PIPELINE_ENABLED && sendRawAudio) {
 		session_context.audioOption.connect = true; //needed for sending raw audio data
 		session_context.audioOption.mute = false; //needed for sending raw audio data
 

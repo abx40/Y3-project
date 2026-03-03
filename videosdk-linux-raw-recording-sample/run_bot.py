@@ -64,7 +64,7 @@ def write_config(repo_root: str, session_name: str, token: str) -> str:
 session_token: "{token}"
 session_psw: ""
 GetVideoRawData: "true"
-GetAudioRawData: "true"
+GetAudioRawData: "false"
 SendVideoRawData: "false"
 SendAudioRawData: "false"
 '''
@@ -79,7 +79,7 @@ SendAudioRawData: "false"
 def run_docker(repo_root: str, image: str = "vsdk-1.11.2-on-ubuntu") -> None:
     """
     Run the Docker bot container with the same command you’ve been using,
-    but also inject ANALYZER_URL/ANALYZER_AUDIO_URL so the C++ code knows where to POST frames/audio.
+    but inject ANALYZER_URL so the C++ code knows where to POST frames (audio disabled).
     """
     config_path = os.path.join(repo_root, "config.txt")
 
@@ -87,10 +87,7 @@ def run_docker(repo_root: str, image: str = "vsdk-1.11.2-on-ubuntu") -> None:
         "ANALYZER_URL",
         "http://host.docker.internal:9001/analyze_frame"
     )
-    analyzer_audio_url = os.environ.get(
-        "ANALYZER_AUDIO_URL",
-        "http://host.docker.internal:8001/audio"
-    )
+    # ANALYZER_AUDIO_URL intentionally disabled while running video-only.
 
     cmd = [
         "docker", "run",
@@ -98,7 +95,6 @@ def run_docker(repo_root: str, image: str = "vsdk-1.11.2-on-ubuntu") -> None:
         "--rm", "-it",
         "-v", f"{config_path}:/app/bin/config.txt:ro",
         "-e", f"ANALYZER_URL={analyzer_url}",   # 👈 inject URL
-        "-e", f"ANALYZER_AUDIO_URL={analyzer_audio_url}",
         "--entrypoint", "/bin/bash",
         image,
         "-lc",
