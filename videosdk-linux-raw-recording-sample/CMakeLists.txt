@@ -15,7 +15,6 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(deps REQUIRED IMPORTED_TARGET glib-2.0)
 pkg_check_modules(GIO REQUIRED gio-2.0)
 
-# NEW: find libcurl
 find_package(CURL REQUIRED)
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
@@ -38,9 +37,20 @@ add_executable(zoom_v-sdk_linux_bot
 target_link_libraries(zoom_v-sdk_linux_bot PkgConfig::deps)
 target_link_libraries(zoom_v-sdk_linux_bot videosdk)
 target_link_libraries(zoom_v-sdk_linux_bot ${GLIB_LIBRARIES} ${GIO_LIBRARIES})
-
-# NEW: link against libcurl
 target_link_libraries(zoom_v-sdk_linux_bot CURL::libcurl)
+
+# Prefer libyuv for I420/NV12 -> RGB conversion when available.
+find_path(LIBYUV_INCLUDE_DIR NAMES libyuv.h)
+find_library(LIBYUV_LIBRARY NAMES yuv)
+
+if (LIBYUV_INCLUDE_DIR AND LIBYUV_LIBRARY)
+    message(STATUS "Found libyuv: ${LIBYUV_LIBRARY}")
+    target_include_directories(zoom_v-sdk_linux_bot PRIVATE ${LIBYUV_INCLUDE_DIR})
+    target_link_libraries(zoom_v-sdk_linux_bot ${LIBYUV_LIBRARY})
+    target_compile_definitions(zoom_v-sdk_linux_bot PRIVATE HAVE_LIBYUV=1)
+else()
+    message(WARNING "libyuv not found; using fallback I420->RGB converter")
+endif()
 
 configure_file(${CMAKE_SOURCE_DIR}/config.txt ${CMAKE_SOURCE_DIR}/bin/config.txt COPYONLY)
 file(COPY ${CMAKE_SOURCE_DIR}/lib/zoom_video_sdk/ DESTINATION ${CMAKE_SOURCE_DIR}/bin)

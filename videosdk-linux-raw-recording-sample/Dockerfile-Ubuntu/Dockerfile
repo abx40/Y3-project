@@ -52,6 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends --no-install-su
 RUN apt-get install -y pulseaudio
 
 RUN apt-get install -y libcurl4-openssl-dev
+RUN apt-get install -y libyuv-dev
 
 # Set the working directory
 WORKDIR /app
