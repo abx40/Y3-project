@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
-# === Paths (edit if your folders move) ===
-ROOT="$HOME/Desktop/Y3 Project/repo"
+# === Paths (auto-detected from this script) ===
+ROOT="$(cd "$(dirname "$0")" && pwd)"
 TOKEN_DIR="$ROOT/zoom-token-server"
 BOT_DIR="$ROOT/videosdk-linux-raw-recording-sample"
 WEB_DIR="$ROOT/videosdk-web-sample"

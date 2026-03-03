@@ -4,7 +4,7 @@ set -e
 # --- Config ---------------------------------------------------------
 SESSION_NAME="test"
 
-REPO_ROOT="$HOME/Desktop/Y3 Project/repo"
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 TOKEN_DIR="$REPO_ROOT/zoom-token-server"
 FRAME_DIR="$REPO_ROOT/zoom-frame-server"
 WEB_DIR="$REPO_ROOT/videosdk-web-sample"
