@@ -21,8 +21,40 @@ from PIL import Image
 # NEW: optional deepfake model imports
 import torch
 from torchvision import transforms as T
-from torchvision.models import resnet18, ResNet18_Weights
 from models.xception_ffpp import Xception as CadeneXception
+from models.effort_clip import (
+    EFFORT_IMG_SIZE,
+    EFFORT_MEAN,
+    EFFORT_STD,
+    load_effort_clip_l14_model,
+)
+from models.efficientnet_dfb import (
+    EFFNB4_IMG_SIZE,
+    EFFNB4_MEAN,
+    EFFNB4_STD,
+    load_dfb_efficientnet_b4_model,
+)
+from models.f3net_dfb import (
+    F3NET_IMG_SIZE,
+    F3NET_MEAN,
+    F3NET_STD,
+    load_dfb_f3net_model,
+)
+from models.i3d_dfb import (
+    I3D_DEFAULT_CLIP_SIZE,
+    I3D_IMG_SIZE,
+    I3D_MEAN,
+    I3D_STD,
+    load_dfb_i3d_model,
+)
+from models.videomae_dfb import (
+    VIDEOMAE_DEFAULT_CLIP_SIZE,
+    VIDEOMAE_DEFAULT_MODEL_ID,
+    VIDEOMAE_IMG_SIZE,
+    VIDEOMAE_MEAN,
+    VIDEOMAE_STD,
+    load_dfb_videomae_model,
+)
 import json
 # Audio model disabled for video-only mode.
 # from models.aasist.AASIST import Model as AASISTModel
@@ -72,6 +104,10 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MODEL_NAME = "unknown"
 MODEL_DEVICE = str(DEVICE)
 MODEL_STRICT_LOAD = False
+MODEL_CHECKPOINT = None
+MODEL_FAKE_INDEX = 1
+VIDEO_MODEL = os.getenv("VIDEO_MODEL", "xception_df40").strip().lower()
+ACTIVE_VIDEO_MODEL = VIDEO_MODEL
 PRED_HISTORY = defaultdict(lambda: deque(maxlen=15))  # rolling window per user
 
 # Keep a longer, time-stamped history per user for plotting (last ~60s)
@@ -132,9 +168,23 @@ XCEPTION_CKPT = os.getenv("XCEPTION_CKPT", "./models/train_on_df40/xception.pth"
 XCEPTION_IMG_SIZE = 256
 XCEPTION_MEAN = [0.5, 0.5, 0.5]
 XCEPTION_STD = [0.5, 0.5, 0.5]
+EFFORT_CKPT = os.getenv("EFFORT_CKPT", "./models/effort/effort_ffpp_clip_l14.pth")
+EFFICIENTNET_CKPT = os.getenv("EFFICIENTNET_CKPT", "./models/train_on_df40/efficientnet_b4.pth")
+F3NET_CKPT = os.getenv("F3NET_CKPT", "./models/train_on_df40/f3net_best.pth")
+I3D_CKPT = os.getenv("I3D_CKPT", "./models/train_on_df40/i3d.pth")
+I3D_CLIP_SIZE = int(os.getenv("I3D_CLIP_SIZE", str(I3D_DEFAULT_CLIP_SIZE)))
+I3D_INFER_EVERY = int(os.getenv("I3D_INFER_EVERY", "1"))
+VIDEOMAE_CKPT = os.getenv("VIDEOMAE_CKPT", "").strip()
+VIDEOMAE_MODEL_ID = os.getenv("VIDEOMAE_MODEL_ID", VIDEOMAE_DEFAULT_MODEL_ID)
+VIDEOMAE_CLIP_SIZE = int(os.getenv("VIDEOMAE_CLIP_SIZE", str(VIDEOMAE_DEFAULT_CLIP_SIZE)))
+VIDEOMAE_INFER_EVERY = int(os.getenv("VIDEOMAE_INFER_EVERY", "1"))
 
-_IMAGENET_MEAN = [0.485, 0.456, 0.406]
-_IMAGENET_STD = [0.229, 0.224, 0.225]
+I3D_FRAME_BUFFER = defaultdict(lambda: deque(maxlen=max(64, I3D_CLIP_SIZE * 2)))
+I3D_FRAME_COUNT = defaultdict(int)
+I3D_LAST_SCORE = defaultdict(lambda: None)
+VIDEOMAE_FRAME_BUFFER = defaultdict(lambda: deque(maxlen=max(64, VIDEOMAE_CLIP_SIZE * 2)))
+VIDEOMAE_FRAME_COUNT = defaultdict(int)
+VIDEOMAE_LAST_SCORE = defaultdict(lambda: None)
 
 # Will be set inside load_model depending on which model loads
 TRANSFORM = T.Compose([
@@ -392,10 +442,8 @@ def gt_label_for_time(t_rel):
 
 
 def _resolve_checkpoint_name():
-    if MODEL_NAME.startswith("Xception"):
-        return XCEPTION_CKPT
-    if MODEL_NAME.startswith("ResNet18"):
-        return "torchvision:ResNet18_Weights.DEFAULT"
+    if MODEL_CHECKPOINT:
+        return MODEL_CHECKPOINT
     return None
 
 
@@ -421,6 +469,7 @@ def init_eval_run():
     run_meta = {
         "run_id": RUN_ID,
         "session_id": SESSION_ID,
+        "video_model": VIDEO_MODEL,
         "model_name": MODEL_NAME if RUN_MODEL_NAME == "auto" else RUN_MODEL_NAME,
         "resolved_model_name": MODEL_NAME,
         "checkpoint": _resolve_checkpoint_name(),
@@ -462,12 +511,18 @@ def write_prediction_row(row):
 
 
 def load_model():
-    """ 
-    Initialise a simple deepfake model.
-    Prefer Xception checkpoint (DF40) if present, otherwise fall back to ResNet18 pretrained.
     """
-    global MODEL, TRANSFORM, MODEL_NAME, MODEL_DEVICE, MODEL_STRICT_LOAD
-
+    Initialise deepfake model from modular key:
+      - xception_df40
+      - effort_clip_l14
+      - efficientnet_b4
+      - f3net
+      - i3d
+      - videomae
+      - auto (xception_df40 -> effort_clip_l14 -> efficientnet_b4)
+    """
+    global MODEL, TRANSFORM, MODEL_NAME, MODEL_DEVICE, MODEL_STRICT_LOAD, MODEL_CHECKPOINT, MODEL_FAKE_INDEX
+    global ACTIVE_VIDEO_MODEL
 
     if not ENABLE_DEEPFAKE:
         print("[DF] Deepfake detection disabled (ENABLE_DEEPFAKE = False)")
@@ -475,62 +530,212 @@ def load_model():
         MODEL_NAME = "disabled"
         MODEL_DEVICE = str(DEVICE)
         MODEL_STRICT_LOAD = False
+        MODEL_CHECKPOINT = None
+        MODEL_FAKE_INDEX = 1
+        ACTIVE_VIDEO_MODEL = "disabled"
         return
 
-    # Try Xception (DF40)
-    if XCEPTION_CKPT and os.path.isfile(XCEPTION_CKPT):
+    def _load_xception_df40():
+        global MODEL, TRANSFORM, MODEL_NAME, MODEL_DEVICE, MODEL_STRICT_LOAD, MODEL_CHECKPOINT, MODEL_FAKE_INDEX
+        if not XCEPTION_CKPT or not os.path.isfile(XCEPTION_CKPT):
+            raise FileNotFoundError(f"Xception checkpoint not found: {XCEPTION_CKPT}")
+        print(f"[DF] Initialising Xception (DF40) on {DEVICE} ...")
+        model = CadeneXception(num_classes=2, in_chans=3)
+        sd = torch.load(XCEPTION_CKPT, map_location="cpu")
+        if isinstance(sd, dict) and "state_dict" in sd:
+            sd = sd["state_dict"]
+        cleaned = {}
+        for k, v in sd.items():
+            if k.startswith("module.backbone."):
+                k = k[len("module.backbone."):]
+            elif k.startswith("module."):
+                k = k[len("module."):]
+            cleaned[k] = v
+        model.load_state_dict(cleaned, strict=True)
+        MODEL = model.to(DEVICE)
+        MODEL.eval()
+        MODEL_NAME = "Xception DF40"
+        MODEL_DEVICE = str(DEVICE)
+        MODEL_STRICT_LOAD = True
+        MODEL_CHECKPOINT = XCEPTION_CKPT
+        MODEL_FAKE_INDEX = 1
+        TRANSFORM = T.Compose([
+            T.Resize((XCEPTION_IMG_SIZE, XCEPTION_IMG_SIZE)),
+            T.ToTensor(),
+            T.Normalize(mean=XCEPTION_MEAN, std=XCEPTION_STD),
+        ])
+        print("[DF] Xception model loaded from checkpoint (strict=True).")
+
+    def _load_effort_clip_l14():
+        global MODEL, TRANSFORM, MODEL_NAME, MODEL_DEVICE, MODEL_STRICT_LOAD, MODEL_CHECKPOINT, MODEL_FAKE_INDEX
+        if not EFFORT_CKPT or not os.path.isfile(EFFORT_CKPT):
+            raise FileNotFoundError(f"Effort checkpoint not found: {EFFORT_CKPT}")
+        print(f"[DF] Initialising Effort CLIP-L14 on {DEVICE} ...")
+        model, report = load_effort_clip_l14_model(EFFORT_CKPT, DEVICE)
+        MODEL = model
+        MODEL_NAME = "Effort CLIP-L14"
+        MODEL_DEVICE = str(DEVICE)
+        MODEL_STRICT_LOAD = (report.loaded_ratio > 0.98)
+        MODEL_CHECKPOINT = EFFORT_CKPT
+        MODEL_FAKE_INDEX = 1
+        TRANSFORM = T.Compose([
+            T.Resize((EFFORT_IMG_SIZE, EFFORT_IMG_SIZE)),
+            T.ToTensor(),
+            T.Normalize(mean=EFFORT_MEAN, std=EFFORT_STD),
+        ])
+        print(
+            "[DF] Effort checkpoint loaded "
+            f"(mode={report.mode}, loaded_ratio={report.loaded_ratio:.3f}, "
+            f"missing={report.missing_count}, unexpected={report.unexpected_count})."
+        )
+
+    def _load_efficientnet_b4():
+        global MODEL, TRANSFORM, MODEL_NAME, MODEL_DEVICE, MODEL_STRICT_LOAD, MODEL_CHECKPOINT, MODEL_FAKE_INDEX
+        if not EFFICIENTNET_CKPT or not os.path.isfile(EFFICIENTNET_CKPT):
+            raise FileNotFoundError(
+                f"EfficientNet checkpoint not found: {EFFICIENTNET_CKPT}. "
+                "Download effnb4_best.pth from DeepfakeBench and set --efficientnet_ckpt."
+            )
+        print(f"[DF] Initialising EfficientNet-B4 (DeepfakeBench) on {DEVICE} ...")
+        model, report = load_dfb_efficientnet_b4_model(EFFICIENTNET_CKPT, DEVICE)
+        MODEL = model
+        MODEL_NAME = "EfficientNet-B4 DF"
+        MODEL_DEVICE = str(DEVICE)
+        MODEL_STRICT_LOAD = (report.loaded_ratio > 0.99)
+        MODEL_CHECKPOINT = EFFICIENTNET_CKPT
+        MODEL_FAKE_INDEX = 1
+        # Match DeepfakeBench effnb4 config.
+        TRANSFORM = T.Compose([
+            T.Resize((EFFNB4_IMG_SIZE, EFFNB4_IMG_SIZE)),
+            T.ToTensor(),
+            T.Normalize(mean=EFFNB4_MEAN, std=EFFNB4_STD),
+        ])
+        print(
+            "[DF] EfficientNet-B4 checkpoint loaded "
+            f"(loaded_ratio={report.loaded_ratio:.3f}, "
+            f"missing={report.missing_count}, unexpected={report.unexpected_count})."
+        )
+
+    def _load_f3net():
+        global MODEL, TRANSFORM, MODEL_NAME, MODEL_DEVICE, MODEL_STRICT_LOAD, MODEL_CHECKPOINT, MODEL_FAKE_INDEX
+        if not F3NET_CKPT or not os.path.isfile(F3NET_CKPT):
+            raise FileNotFoundError(f"F3Net checkpoint not found: {F3NET_CKPT}")
+        print(f"[DF] Initialising F3Net (frequency branch) on {DEVICE} ...")
+        model, report = load_dfb_f3net_model(F3NET_CKPT, DEVICE)
+        MODEL = model
+        MODEL_NAME = "F3Net DF"
+        MODEL_DEVICE = str(DEVICE)
+        MODEL_STRICT_LOAD = (report.loaded_ratio > 0.99)
+        MODEL_CHECKPOINT = F3NET_CKPT
+        MODEL_FAKE_INDEX = 1
+        TRANSFORM = T.Compose([
+            T.Resize((F3NET_IMG_SIZE, F3NET_IMG_SIZE)),
+            T.ToTensor(),
+            T.Normalize(mean=F3NET_MEAN, std=F3NET_STD),
+        ])
+        print(
+            "[DF] F3Net checkpoint loaded "
+            f"(loaded_ratio={report.loaded_ratio:.3f}, "
+            f"missing={report.missing_count}, unexpected={report.unexpected_count})."
+        )
+
+    def _load_i3d():
+        global MODEL, TRANSFORM, MODEL_NAME, MODEL_DEVICE, MODEL_STRICT_LOAD, MODEL_CHECKPOINT, MODEL_FAKE_INDEX
+        if not I3D_CKPT or not os.path.isfile(I3D_CKPT):
+            raise FileNotFoundError(f"I3D checkpoint not found: {I3D_CKPT}")
+        print(f"[DF] Initialising I3D (temporal) on {DEVICE} ...")
+        model, report = load_dfb_i3d_model(I3D_CKPT, DEVICE, clip_size=I3D_CLIP_SIZE)
+        MODEL = model
+        MODEL_NAME = "I3D DF"
+        MODEL_DEVICE = str(DEVICE)
+        MODEL_STRICT_LOAD = (report.loaded_ratio > 0.99)
+        MODEL_CHECKPOINT = I3D_CKPT
+        MODEL_FAKE_INDEX = 1
+        TRANSFORM = T.Compose([
+            T.Resize((I3D_IMG_SIZE, I3D_IMG_SIZE)),
+            T.ToTensor(),
+            T.Normalize(mean=I3D_MEAN, std=I3D_STD),
+        ])
+        print(
+            "[DF] I3D checkpoint loaded "
+            f"(loaded_ratio={report.loaded_ratio:.3f}, "
+            f"missing={report.missing_count}, unexpected={report.unexpected_count}, "
+            f"clip_size={I3D_CLIP_SIZE}, infer_every={I3D_INFER_EVERY})."
+        )
+
+    def _load_videomae():
+        global MODEL, TRANSFORM, MODEL_NAME, MODEL_DEVICE, MODEL_STRICT_LOAD, MODEL_CHECKPOINT, MODEL_FAKE_INDEX
+        ckpt = None
+        if VIDEOMAE_CKPT:
+            if not os.path.isfile(VIDEOMAE_CKPT):
+                raise FileNotFoundError(f"VideoMAE checkpoint not found: {VIDEOMAE_CKPT}")
+            ckpt = VIDEOMAE_CKPT
+        print(
+            f"[DF] Initialising VideoMAE on {DEVICE} "
+            f"(model_id={VIDEOMAE_MODEL_ID}, clip_size={VIDEOMAE_CLIP_SIZE}) ..."
+        )
+        model, report = load_dfb_videomae_model(VIDEOMAE_MODEL_ID, ckpt, DEVICE)
+        MODEL = model
+        MODEL_NAME = "VideoMAE DF"
+        MODEL_DEVICE = str(DEVICE)
+        MODEL_STRICT_LOAD = (report.loaded_ratio > 0.99)
+        MODEL_CHECKPOINT = ckpt if ckpt else f"hf:{VIDEOMAE_MODEL_ID}"
+        MODEL_FAKE_INDEX = int(report.fake_index)
+        TRANSFORM = T.Compose([
+            T.Resize((int(report.img_size), int(report.img_size))),
+            T.ToTensor(),
+            T.Normalize(mean=report.mean, std=report.std),
+        ])
+        print(
+            "[DF] VideoMAE loaded "
+            f"(mode={report.mode}, loaded_ratio={report.loaded_ratio:.3f}, "
+            f"missing={report.missing_count}, unexpected={report.unexpected_count}, "
+            f"fake_index={MODEL_FAKE_INDEX}, infer_every={VIDEOMAE_INFER_EVERY})."
+        )
+
+    loaders = {
+        "xception_df40": _load_xception_df40,
+        "xception": _load_xception_df40,
+        "effort_clip_l14": _load_effort_clip_l14,
+        "effort": _load_effort_clip_l14,
+        "efficientnet_b4": _load_efficientnet_b4,
+        "efficientnet": _load_efficientnet_b4,
+        "effnet": _load_efficientnet_b4,
+        "f3net": _load_f3net,
+        "i3d": _load_i3d,
+        "videomae": _load_videomae,
+    }
+
+    requested = VIDEO_MODEL or "xception_df40"
+    if requested == "auto":
+        try_order = ["xception_df40", "effort_clip_l14", "efficientnet_b4"]
+    else:
+        try_order = [requested]
+
+    attempted = []
+    for key in try_order:
+        loader = loaders.get(key)
+        if loader is None:
+            continue
         try:
-            print(f"[DF] Initialising Xception (DF40) on {DEVICE} ...")
-            model = CadeneXception(num_classes=2, in_chans=3)
-            sd = torch.load(XCEPTION_CKPT, map_location="cpu")
-            if isinstance(sd, dict) and "state_dict" in sd:
-                sd = sd["state_dict"]
-            # Strip common wrappers from checkpoints (e.g., module.backbone.)
-            cleaned = {}
-            for k, v in sd.items():
-                if k.startswith("module.backbone."):
-                    k = k[len("module.backbone."):]
-                elif k.startswith("module."):
-                    k = k[len("module."):]
-                cleaned[k] = v
-            # For DF40 we want exact loading (source-of-truth for evaluation).
-            model.load_state_dict(cleaned, strict=True)
-            MODEL = model.to(DEVICE)
-            MODEL.eval()
-            MODEL_NAME = "Xception DF40"
-            MODEL_DEVICE = str(DEVICE)
-            MODEL_STRICT_LOAD = True
-            TRANSFORM = T.Compose([
-                T.Resize((XCEPTION_IMG_SIZE, XCEPTION_IMG_SIZE)),
-                T.ToTensor(),
-                T.Normalize(mean=XCEPTION_MEAN, std=XCEPTION_STD),
-            ])
-            print("[DF] Xception model loaded from checkpoint (strict=True).")
+            loader()
+            ACTIVE_VIDEO_MODEL = key
+            print(f"[DF] Active model key: {key}")
             return
         except Exception as e:
-            print(f"[DF] Failed to load Xception checkpoint '{XCEPTION_CKPT}': {e}. Falling back to ResNet18.")
+            attempted.append(f"{key}: {e}")
+            print(f"[DF] Model load failed for '{key}': {e}")
 
-    # Fallback: ResNet18 pretrained backbone
-    try:
-        print(f"[DF] Initialising ResNet18 (ImageNet pretrained) on {DEVICE} ...")
-        base = resnet18(weights=ResNet18_Weights.DEFAULT)
-        in_features = base.fc.in_features
-        # 2-class head: [real, fake]
-        base.fc = torch.nn.Linear(in_features, 2)
-        MODEL = base.to(DEVICE)
-        MODEL.eval()
-        MODEL_NAME = "ResNet18 ImageNet"
-        MODEL_DEVICE = str(DEVICE)
-        MODEL_STRICT_LOAD = False
-        TRANSFORM = T.Compose([
-            T.Resize((224, 224)),
-            T.ToTensor(),
-            T.Normalize(mean=_IMAGENET_MEAN, std=_IMAGENET_STD),
-        ])
-        print("[DF] ResNet18 model initialised and set to eval()")
-    except Exception as e:
-        print(f"[DF] Failed to initialise model: {e}")
-        MODEL = None
+    MODEL = None
+    MODEL_NAME = "failed"
+    MODEL_DEVICE = str(DEVICE)
+    MODEL_STRICT_LOAD = False
+    MODEL_CHECKPOINT = None
+    MODEL_FAKE_INDEX = 1
+    ACTIVE_VIDEO_MODEL = "failed"
+    print("[DF] Failed to initialise any model. Attempts:")
+    for item in attempted:
+        print(f"  - {item}")
 
 
 
@@ -548,24 +753,70 @@ def run_deepfake_inference(user_id: str, y_plane: np.ndarray):
     try:
         # y_plane: HxW uint8
         pil_img = Image.fromarray(y_plane).convert("RGB")
-        x = TRANSFORM(pil_img).unsqueeze(0).to(DEVICE)
+        frame_tensor = TRANSFORM(pil_img)
 
+        # Temporal model path (I3D / VideoMAE): score on a clip window per user.
+        if ACTIVE_VIDEO_MODEL in {"i3d", "videomae"}:
+            if ACTIVE_VIDEO_MODEL == "i3d":
+                frame_count_map = I3D_FRAME_COUNT
+                frame_buffer_map = I3D_FRAME_BUFFER
+                last_score_map = I3D_LAST_SCORE
+                clip_size = I3D_CLIP_SIZE
+                infer_every = I3D_INFER_EVERY
+            else:
+                frame_count_map = VIDEOMAE_FRAME_COUNT
+                frame_buffer_map = VIDEOMAE_FRAME_BUFFER
+                last_score_map = VIDEOMAE_LAST_SCORE
+                clip_size = VIDEOMAE_CLIP_SIZE
+                infer_every = VIDEOMAE_INFER_EVERY
 
-        with torch.no_grad():
-            out = MODEL(x)
+            frame_count_map[user_id] += 1
+            frame_buffer_map[user_id].append(frame_tensor)
 
+            enough_frames = len(frame_buffer_map[user_id]) >= clip_size
+            should_infer = enough_frames and (
+                frame_count_map[user_id] % max(1, infer_every) == 0
+            )
 
-        # Handle a couple of common head formats:
-        if out.ndim == 2 and out.shape[1] == 2:
-            # logits for [real, fake]
-            probs = torch.softmax(out, dim=1)
-            fake_prob = probs[0, 1].item()
-        elif out.ndim == 2 and out.shape[1] == 1:
-            # single logit, apply sigmoid
-            fake_prob = torch.sigmoid(out[0, 0]).item()
+            if should_infer:
+                clip = torch.stack(
+                    list(frame_buffer_map[user_id])[-clip_size:],
+                    dim=0,
+                ).unsqueeze(0).to(DEVICE)  # [B, T, C, H, W]
+                with torch.no_grad():
+                    out = MODEL(clip)
+                if out.ndim == 2 and out.shape[1] >= 2:
+                    probs = torch.softmax(out, dim=1)
+                    fake_idx = int(max(0, min(MODEL_FAKE_INDEX, out.shape[1] - 1)))
+                    fake_prob = probs[0, fake_idx].item()
+                elif out.ndim == 2 and out.shape[1] == 1:
+                    fake_prob = torch.sigmoid(out[0, 0]).item()
+                else:
+                    fake_prob = float(out.squeeze().item())
+                last_score_map[user_id] = fake_prob
+            else:
+                fake_prob = last_score_map[user_id]
+                if fake_prob is None:
+                    # Warm-up phase before first full clip.
+                    return None, None
         else:
-            # already probability-ish
-            fake_prob = float(out.squeeze().item())
+            x = frame_tensor.unsqueeze(0).to(DEVICE)
+
+            with torch.no_grad():
+                out = MODEL(x)
+
+            # Handle a couple of common head formats:
+            if out.ndim == 2 and out.shape[1] >= 2:
+                # logits for [real, fake]
+                probs = torch.softmax(out, dim=1)
+                fake_idx = int(max(0, min(MODEL_FAKE_INDEX, out.shape[1] - 1)))
+                fake_prob = probs[0, fake_idx].item()
+            elif out.ndim == 2 and out.shape[1] == 1:
+                # single logit, apply sigmoid
+                fake_prob = torch.sigmoid(out[0, 0]).item()
+            else:
+                # already probability-ish
+                fake_prob = float(out.squeeze().item())
 
 
         # short rolling average (per-user) for log noise smoothing
@@ -1069,10 +1320,25 @@ async def presence(payload: dict):
 async def get_info():
     return {
         "model": MODEL_NAME,
+        "video_model": VIDEO_MODEL,
+        "active_video_model": ACTIVE_VIDEO_MODEL,
         "device": MODEL_DEVICE,
         "model_strict_load": MODEL_STRICT_LOAD,
+        "model_fake_index": MODEL_FAKE_INDEX,
         "python_executable": sys.executable,
         "xception_ckpt": XCEPTION_CKPT,
+        "effort_ckpt": EFFORT_CKPT,
+        "efficientnet_ckpt": EFFICIENTNET_CKPT,
+        "f3net_ckpt": F3NET_CKPT,
+        "i3d_ckpt": I3D_CKPT,
+        "i3d_clip_size": I3D_CLIP_SIZE,
+        "i3d_infer_every": I3D_INFER_EVERY,
+        "videomae_ckpt": VIDEOMAE_CKPT,
+        "videomae_model_id": VIDEOMAE_MODEL_ID,
+        "videomae_clip_size": VIDEOMAE_CLIP_SIZE,
+        "videomae_infer_every": VIDEOMAE_INFER_EVERY,
+        "model_checkpoint": MODEL_CHECKPOINT,
+        "available_video_models": ["auto", "xception_df40", "effort_clip_l14", "efficientnet_b4", "f3net", "i3d", "videomae"],
         "enable_deepfake": ENABLE_DEEPFAKE,
         "save_raw": SAVE_RAW,
         "save_png": SAVE_PNG,
@@ -1104,6 +1370,73 @@ def parse_cli_args():
     parser.add_argument("--labels_csv", type=str, default=None, help="Optional labels CSV for GT alignment.")
     parser.add_argument("--log_dir", type=str, default="logs", help="Directory where logs/<run_id>/... are written.")
     parser.add_argument("--model_name", type=str, default="auto", help="Model tag for metadata (e.g. DF40).")
+    parser.add_argument(
+        "--video_model",
+        type=str,
+        default=VIDEO_MODEL,
+        choices=["auto", "xception_df40", "effort_clip_l14", "efficientnet_b4", "f3net", "i3d", "videomae"],
+        help="Selectable video model backend.",
+    )
+    parser.add_argument(
+        "--effort_ckpt",
+        type=str,
+        default=EFFORT_CKPT,
+        help="Path to Effort CLIP-L14 checkpoint (.pth).",
+    )
+    parser.add_argument(
+        "--efficientnet_ckpt",
+        type=str,
+        default=EFFICIENTNET_CKPT,
+        help="Path to EfficientNet-B4 deepfake checkpoint (.pth).",
+    )
+    parser.add_argument(
+        "--f3net_ckpt",
+        type=str,
+        default=F3NET_CKPT,
+        help="Path to F3Net deepfake checkpoint (.pth).",
+    )
+    parser.add_argument(
+        "--i3d_ckpt",
+        type=str,
+        default=I3D_CKPT,
+        help="Path to I3D deepfake checkpoint (.pth).",
+    )
+    parser.add_argument(
+        "--i3d_clip_size",
+        type=int,
+        default=I3D_CLIP_SIZE,
+        help="I3D temporal clip size in frames.",
+    )
+    parser.add_argument(
+        "--i3d_infer_every",
+        type=int,
+        default=I3D_INFER_EVERY,
+        help="Run I3D inference every N received frames after warm-up.",
+    )
+    parser.add_argument(
+        "--videomae_ckpt",
+        type=str,
+        default=VIDEOMAE_CKPT,
+        help="Optional path to VideoMAE deepfake checkpoint (.pth). Leave empty to use HF classifier model_id directly.",
+    )
+    parser.add_argument(
+        "--videomae_model_id",
+        type=str,
+        default=VIDEOMAE_MODEL_ID,
+        help="Hugging Face model id for VideoMAE backbone.",
+    )
+    parser.add_argument(
+        "--videomae_clip_size",
+        type=int,
+        default=VIDEOMAE_CLIP_SIZE,
+        help="VideoMAE temporal clip size in frames.",
+    )
+    parser.add_argument(
+        "--videomae_infer_every",
+        type=int,
+        default=VIDEOMAE_INFER_EVERY,
+        help="Run VideoMAE inference every N received frames after warm-up.",
+    )
     parser.add_argument("--threshold", type=float, default=0.5, help="Decision threshold for pred_label.")
     parser.add_argument("--source", type=str, default="zoom-bot", choices=["obs", "zoom-bot", "file"], help="Source tag in prediction logs.")
     parser.add_argument("--face_crop", type=str, default="on", choices=["on", "off"], help="Enable face detection crop before inference.")
@@ -1122,6 +1455,11 @@ def apply_cli_config(args):
     global RUN_ID, SESSION_ID, LABELS_CSV, LOG_BASE_DIR
     global RUN_MODEL_NAME, DECISION_THRESHOLD, RUN_SOURCE
     global FACE_CROP_MODE, FACE_MARGIN, FACE_MIN_BBOX_AREA_RATIO, FACE_MIN_CROP_SIDE_RATIO
+    global VIDEO_MODEL, EFFORT_CKPT, EFFICIENTNET_CKPT, F3NET_CKPT, I3D_CKPT
+    global I3D_CLIP_SIZE, I3D_INFER_EVERY
+    global VIDEOMAE_CKPT, VIDEOMAE_MODEL_ID, VIDEOMAE_CLIP_SIZE, VIDEOMAE_INFER_EVERY
+    global I3D_FRAME_BUFFER, I3D_FRAME_COUNT, I3D_LAST_SCORE
+    global VIDEOMAE_FRAME_BUFFER, VIDEOMAE_FRAME_COUNT, VIDEOMAE_LAST_SCORE
     global SAVE_RAW, SAVE_PNG
 
     RUN_ID = args.run_id
@@ -1129,6 +1467,23 @@ def apply_cli_config(args):
     LABELS_CSV = args.labels_csv
     LOG_BASE_DIR = args.log_dir
     RUN_MODEL_NAME = args.model_name
+    VIDEO_MODEL = args.video_model
+    EFFORT_CKPT = args.effort_ckpt
+    EFFICIENTNET_CKPT = args.efficientnet_ckpt
+    F3NET_CKPT = args.f3net_ckpt
+    I3D_CKPT = args.i3d_ckpt
+    I3D_CLIP_SIZE = max(2, int(args.i3d_clip_size))
+    I3D_INFER_EVERY = max(1, int(args.i3d_infer_every))
+    VIDEOMAE_CKPT = str(args.videomae_ckpt).strip()
+    VIDEOMAE_MODEL_ID = str(args.videomae_model_id).strip()
+    VIDEOMAE_CLIP_SIZE = max(2, int(args.videomae_clip_size))
+    VIDEOMAE_INFER_EVERY = max(1, int(args.videomae_infer_every))
+    I3D_FRAME_BUFFER = defaultdict(lambda: deque(maxlen=max(64, I3D_CLIP_SIZE * 2)))
+    I3D_FRAME_COUNT = defaultdict(int)
+    I3D_LAST_SCORE = defaultdict(lambda: None)
+    VIDEOMAE_FRAME_BUFFER = defaultdict(lambda: deque(maxlen=max(64, VIDEOMAE_CLIP_SIZE * 2)))
+    VIDEOMAE_FRAME_COUNT = defaultdict(int)
+    VIDEOMAE_LAST_SCORE = defaultdict(lambda: None)
     DECISION_THRESHOLD = float(args.threshold)
     RUN_SOURCE = args.source
     FACE_CROP_MODE = args.face_crop
