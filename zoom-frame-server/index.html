@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deepfake Detection Monitor</title>
+    <style>
+        :root {
+            --color-cream-50: rgba(252, 252, 249, 1);
+            --color-cream-100: rgba(255, 255, 253, 1);
+            --color-gray-200: rgba(245, 245, 245, 1);
+            --color-slate-500: rgba(98, 108, 113, 1);
+            --color-charcoal-700: rgba(31, 33, 33, 1);
+            --color-charcoal-800: rgba(38, 40, 40, 1);
+            --color-teal-500: rgba(33, 128, 141, 1);
+            --color-teal-600: rgba(29, 116, 128, 1);
+            --color-red-500: rgba(192, 21, 47, 1);
+            --color-orange-500: rgba(168, 75, 47, 1);
+            
+            --color-background: var(--color-cream-50);
+            --color-surface: var(--color-cream-100);
+            --color-text: var(--color-charcoal-700);
+            --color-text-secondary: var(--color-slate-500);
+            --color-primary: var(--color-teal-500);
+            --color-danger: var(--color-red-500);
+            --color-warning: var(--color-orange-500);
+            --color-border: rgba(94, 82, 64, 0.2);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --color-background: var(--color-charcoal-700);
+                --color-surface: var(--color-charcoal-800);
+                --color-text: var(--color-gray-200);
+                --color-border: rgba(119, 124, 124, 0.3);
+            }
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--color-background);
+            color: var(--color-text);
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 32px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: var(--color-text-secondary);
+            font-size: 14px;
+        }
+
+        .controls {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+
+        .control-row {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        label {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--color-text-secondary);
+        }
+
+        input, select {
+            padding: 8px 12px;
+            border: 1px solid var(--color-border);
+            border-radius: 6px;
+            background: var(--color-background);
+            color: var(--color-text);
+            font-size: 14px;
+        }
+
+        button {
+            padding: 8px 16px;
+            background: var(--color-primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: var(--color-teal-600);
+            transform: translateY(-1px);
+        }
+
+        button.danger {
+            background: var(--color-danger);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .card {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            gap: 6px;
+        }
+
+        .badge.live {
+            background: rgba(33, 128, 141, 0.1);
+            color: var(--color-primary);
+        }
+
+        .badge.danger {
+            background: rgba(192, 21, 47, 0.1);
+            color: var(--color-danger);
+        }
+
+        .badge.warning {
+            background: rgba(168, 75, 47, 0.1);
+            color: var(--color-warning);
+        }
+
+        .badge.inactive {
+            background: rgba(120, 120, 120, 0.12);
+            color: var(--color-text-secondary);
+        }
+
+        .mode-badges {
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+            flex-wrap: wrap;
+        }
+
+        .mode-badges .badge {
+            font-size: 11px;
+            padding: 4px 10px;
+        }
+
+        .pulse {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .chart-container {
+            position: relative;
+            height: 350px;
+            margin-bottom: 16px;
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .axis-label {
+            font-size: 11px;
+            fill: var(--color-text-secondary);
+        }
+
+        .grid-line {
+            stroke: var(--color-border);
+            stroke-width: 1;
+            stroke-dasharray: 2, 4;
+        }
+
+        .chart-line {
+            fill: none;
+            stroke-width: 2.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .area-fill {
+            opacity: 0.1;
+        }
+
+        .threshold-line {
+            stroke: var(--color-danger);
+            stroke-width: 2;
+            stroke-dasharray: 6, 4;
+            opacity: 0.5;
+        }
+
+        .data-point {
+            r: 4;
+            opacity: 0.7;
+            transition: all 0.2s;
+        }
+
+        .data-point:hover {
+            r: 6;
+            opacity: 1;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--color-background);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--color-text-secondary);
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 600;
+            color: var(--color-text);
+        }
+
+        .stat-unit {
+            font-size: 16px;
+            color: var(--color-text-secondary);
+            margin-left: 4px;
+        }
+
+        .user-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .user-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: var(--color-background);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .user-item:hover {
+            border-color: var(--color-primary);
+            transform: translateX(2px);
+        }
+
+        .user-item.selected {
+            border-color: var(--color-primary);
+            background: rgba(33, 128, 141, 0.05);
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--color-primary), var(--color-teal-600));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .user-details h4 {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 2px;
+        }
+
+        .user-details p {
+            font-size: 12px;
+            color: var(--color-text-secondary);
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 1000;
+        }
+
+        .legend {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            font-size: 12px;
+            margin-top: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-color {
+            width: 16px;
+            height: 3px;
+            border-radius: 2px;
+        }
+
+        @media (max-width: 1200px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Deepfake Detection Monitor</h1>
+            <p class="subtitle">Real-time deepfake probability tracking across video streams</p>
+        </header>
+
+        <div class="controls">
+            <div class="control-row">
+                <div>
+                    <label for="userSelect">User ID:</label>
+                    <input type="text" id="userSelect" placeholder="Enter user ID">
+                </div>
+                <div>
+                    <label for="timeWindow">Time Window:</label>
+                    <select id="timeWindow">
+                        <option value="30">30 seconds</option>
+                        <option value="60" selected>60 seconds</option>
+                        <option value="120">2 minutes</option>
+                        <option value="300">5 minutes</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="threshold">Alert Threshold:</label>
+                    <input type="number" id="threshold" min="0" max="1" step="0.05" value="0.7">
+                </div>
+                <button onclick="app.loadUser()">Load User</button>
+                <button onclick="app.toggleAutoRefresh()" id="refreshBtn">Auto-Refresh: ON</button>
+                <button onclick="app.clearData()" class="danger">Clear Data</button>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Current Probability</div>
+                <div class="stat-value" id="currentProb">--<span class="stat-unit">%</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Average (60s)</div>
+                <div class="stat-value" id="avgProb">--<span class="stat-unit">%</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Peak Probability</div>
+                <div class="stat-value" id="maxProb">--<span class="stat-unit">%</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Data Points</div>
+                <div class="stat-value" id="dataPoints">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Model</div>
+                <div class="stat-value" id="modelName">--</div>
+                <div class="stat-label">Device</div>
+                <div class="stat-value" id="modelDevice">--</div>
+                <div class="stat-label">Face Detection</div>
+                <div class="stat-value" id="faceCropMode">--</div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Deepfake Probability (Real-time)</h2>
+                    <span class="badge live" id="statusBadge">
+                        <span class="pulse"></span>
+                        Live
+                    </span>
+                </div>
+                <div class="chart-container">
+                    <svg id="mainChart"></svg>
+                </div>
+                <div class="legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(90deg, rgba(33,128,141,0.3), rgba(33,128,141,1));"></div>
+                        <span>Fake Probability</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: rgba(192,21,47,0.5);"></div>
+                        <span>Alert Threshold</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Smoothed Probability</h2>
+                    <span class="badge" id="avgBadge">Rolling Average</span>
+                </div>
+                <div class="chart-container">
+                    <svg id="smoothChart"></svg>
+                </div>
+                <div class="legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(90deg, rgba(168,75,47,0.3), rgba(168,75,47,1));"></div>
+                        <span>Smoothed (15-frame avg)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Active Users</h2>
+            </div>
+            <div class="user-list" id="userList">
+                <p style="color: var(--color-text-secondary); text-align: center; padding: 20px;">
+                    No users detected yet. Data will appear when frames are received.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        const API_BASE = `${window.location.protocol === 'file:' ? 'http:' : window.location.protocol}//${window.location.hostname || 'localhost'}:8001`;
+        const app = {
+            currentUser: '',
+            autoRefresh: true,
+            refreshInterval: null,
+            data: [],
+            smoothData: [],
+            // audioData/audioSmooth disabled for video-only mode.
+            // audioData: [],
+            // audioSmooth: [],
+            users: new Set(),
+            threshold: 0.7,
+            timeWindow: 60,
+            modelInfo: { model: '--', device: '--', face_crop_mode: '--' },
+
+            init() {
+                this.setupCharts();
+                this.loadInfo();
+                this.startAutoRefresh();
+                this.loadUser();
+                this.loadActiveUsers();
+            },
+
+            setupCharts() {
+                // Initialize both charts
+                this.updateChart('mainChart', [], 'Fake Probability');
+                this.updateChart('smoothChart', [], 'Smoothed Probability');
+            },
+
+            async loadInfo() {
+                try {
+                    const resp = await fetch(`${API_BASE}/info`);
+                    if (!resp.ok) return;
+                    this.modelInfo = await resp.json();
+                    document.getElementById('modelName').textContent = this.modelInfo.model || '--';
+                    document.getElementById('modelDevice').textContent = this.modelInfo.device || '--';
+                    const mode = (this.modelInfo.face_crop_mode || '--').toLowerCase();
+                    document.getElementById('faceCropMode').textContent = mode === 'on' ? 'ON' : (mode === 'off' ? 'OFF' : '--');
+                    if (typeof this.modelInfo.threshold === 'number') {
+                        this.threshold = this.modelInfo.threshold;
+                        document.getElementById('threshold').value = this.modelInfo.threshold;
+                    }
+                } catch (error) {
+                    console.error('Error fetching model info:', error);
+                }
+            },
+
+            async loadUser() {
+                const userId = document.getElementById('userSelect').value.trim();
+                if (!userId) return;
+                
+                this.currentUser = userId;
+                this.timeWindow = parseInt(document.getElementById('timeWindow').value);
+                this.threshold = parseFloat(document.getElementById('threshold').value);
+                
+                await this.fetchData();
+            },
+
+            async fetchData() {
+                if (!this.currentUser || !this.currentUser.trim()) {
+                    return;
+                }
+                try {
+                    // Fetch real data from your FastAPI server
+                    const url = `${API_BASE}/data/${encodeURIComponent(this.currentUser)}?window=${this.timeWindow}`;
+                    const response = await fetch(url);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    this.data = data.raw || [];
+                    this.smoothData = data.smoothed || [];
+                    // Audio series disabled for video-only mode.
+                    // this.audioData = data.audio_raw || [];
+                    // this.audioSmooth = data.audio_smoothed || [];
+                    
+                    this.updateUI();
+                } catch (error) {
+                    console.error('Error fetching data:', error);
+                    // Keep existing data on error
+                }
+            },
+
+            async loadActiveUsers() {
+                try {
+                    const response = await fetch(`${API_BASE}/users`);
+                    if (!response.ok) return;
+                    
+                    const data = await response.json();
+                    this.updateUserList(data.users || []);
+                } catch (error) {
+                    console.error('Error fetching users:', error);
+                }
+            },
+
+            updateUserList(users) {
+                const userList = document.getElementById('userList');
+                
+                if (users.length === 0) {
+                    userList.innerHTML = `
+                        <p style="color: var(--color-text-secondary); text-align: center; padding: 20px;">
+                            No active users detected. Waiting for frame data...
+                        </p>
+                    `;
+                    return;
+                }
+                
+                userList.innerHTML = '';
+                const userIds = users.map(u => u.user_id);
+                if (!this.currentUser || !userIds.includes(this.currentUser)) {
+                    this.currentUser = users[0].user_id;
+                    document.getElementById('userSelect').value = this.currentUser;
+                    this.fetchData();
+                }
+
+                users.forEach(user => {
+                    const div = document.createElement('div');
+                    div.className = 'user-item' + (user.user_id === this.currentUser ? ' selected' : '');
+                    div.onclick = () => {
+                        document.getElementById('userSelect').value = user.user_id;
+                        this.loadUser();
+                    };
+                    
+                    const initials = user.user_id.substring(0, 2).toUpperCase();
+                    const lastSeen = new Date(user.last_seen).toLocaleTimeString();
+                    const riskLevel = user.last_probability > 0.7 ? 'High Risk' : 
+                                     user.last_probability > 0.5 ? 'Medium Risk' : 'Low Risk';
+                    const badgeClass = user.last_probability > 0.7 ? 'danger' : 
+                                      user.last_probability > 0.5 ? 'warning' : 'live';
+                    const videoBadge = user.frame_count > 0 ?
+                        '<span class="badge live">Video</span>' :
+                        '<span class="badge inactive">Video</span>';
+                    
+                    div.innerHTML = `
+                        <div class="user-info">
+                            <div class="user-avatar">${initials}</div>
+                            <div class="user-details">
+                                <h4>${user.user_id}</h4>
+                                <p>Last seen: ${lastSeen} • ${user.frame_count} frames</p>
+                                <div class="mode-badges">
+                                    ${videoBadge}
+                                </div>
+                            </div>
+                        </div>
+                        <span class="badge ${badgeClass}">${(user.last_probability * 100).toFixed(1)}%</span>
+                    `;
+                    
+                    userList.appendChild(div);
+                });
+            },
+
+            updateUI() {
+                this.updateStats();
+                this.updateChart('mainChart', this.data, 'Fake Probability', '#218D8D');
+                this.updateChart('smoothChart', this.smoothData, 'Smoothed Probability', '#A84B2F');
+                this.updateStatusBadge();
+            },
+
+            updateStats() {
+                if (this.data.length === 0) return;
+
+                const latest = this.data[this.data.length - 1];
+                const probs = this.data.map(d => d.probability);
+                const avg = probs.reduce((a, b) => a + b, 0) / probs.length;
+                const max = Math.max(...probs);
+
+                document.getElementById('currentProb').innerHTML = 
+                    `${(latest.probability * 100).toFixed(1)}<span class="stat-unit">%</span>`;
+                document.getElementById('avgProb').innerHTML = 
+                    `${(avg * 100).toFixed(1)}<span class="stat-unit">%</span>`;
+                document.getElementById('maxProb').innerHTML = 
+                    `${(max * 100).toFixed(1)}<span class="stat-unit">%</span>`;
+                document.getElementById('dataPoints').textContent = this.data.length;
+            },
+
+            updateStatusBadge() {
+                const badge = document.getElementById('statusBadge');
+                if (this.data.length === 0) return;
+
+                const latest = this.data[this.data.length - 1].probability;
+                
+                if (latest > this.threshold) {
+                    badge.className = 'badge danger';
+                    badge.innerHTML = '<span class="pulse"></span> ALERT: High Risk';
+                } else if (latest > this.threshold * 0.7) {
+                    badge.className = 'badge warning';
+                    badge.innerHTML = '<span class="pulse"></span> Warning';
+                } else {
+                    badge.className = 'badge live';
+                    badge.innerHTML = '<span class="pulse"></span> Live';
+                }
+            },
+
+            updateChart(svgId, data, label, color = '#218D8D', extraData = [], extraColor = '#A84B2F') {
+                const svg = document.getElementById(svgId);
+                svg.innerHTML = '';
+
+                const width = svg.clientWidth;
+                const height = svg.clientHeight;
+                const padding = { top: 20, right: 20, bottom: 40, left: 60 };
+                const chartWidth = width - padding.left - padding.right;
+                const chartHeight = height - padding.top - padding.bottom;
+
+                if (data.length === 0 && extraData.length === 0) {
+                    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    text.setAttribute('x', width / 2);
+                    text.setAttribute('y', height / 2);
+                    text.setAttribute('text-anchor', 'middle');
+                    text.setAttribute('class', 'axis-label');
+                    text.textContent = 'Waiting for data...';
+                    svg.appendChild(text);
+                    return;
+                }
+
+                // Create scales
+                const allPoints = [...data, ...extraData];
+                const times = allPoints.map(d => d.timestamp);
+                const minTime = Math.min(...times);
+                const maxTime = Math.max(...times);
+                const timeRange = maxTime - minTime || 1;
+
+                const xScale = (time) => padding.left + ((time - minTime) / timeRange) * chartWidth;
+                const yScale = (prob) => padding.top + chartHeight - (prob * chartHeight);
+
+                // Draw grid lines
+                const gridGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                for (let i = 0; i <= 4; i++) {
+                    const y = padding.top + (chartHeight / 4) * i;
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    line.setAttribute('x1', padding.left);
+                    line.setAttribute('y1', y);
+                    line.setAttribute('x2', padding.left + chartWidth);
+                    line.setAttribute('y2', y);
+                    line.setAttribute('class', 'grid-line');
+                    gridGroup.appendChild(line);
+
+                    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    text.setAttribute('x', padding.left - 10);
+                    text.setAttribute('y', y + 4);
+                    text.setAttribute('text-anchor', 'end');
+                    text.setAttribute('class', 'axis-label');
+                    text.textContent = `${((1 - i / 4) * 100).toFixed(0)}%`;
+                    gridGroup.appendChild(text);
+                }
+                svg.appendChild(gridGroup);
+
+                // Draw threshold line
+                if (svgId === 'mainChart') {
+                    const thresholdY = yScale(this.threshold);
+                    const thresholdLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    thresholdLine.setAttribute('x1', padding.left);
+                    thresholdLine.setAttribute('y1', thresholdY);
+                    thresholdLine.setAttribute('x2', padding.left + chartWidth);
+                    thresholdLine.setAttribute('y2', thresholdY);
+                    thresholdLine.setAttribute('class', 'threshold-line');
+                    svg.appendChild(thresholdLine);
+                }
+
+                if (data.length > 0) {
+                    // Draw area fill for primary series
+                    const areaPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    let areaD = `M ${xScale(data[0].timestamp)} ${yScale(0)}`;
+                    data.forEach((d) => {
+                        areaD += ` L ${xScale(d.timestamp)} ${yScale(d.probability)}`;
+                    });
+                    areaD += ` L ${xScale(data[data.length - 1].timestamp)} ${yScale(0)} Z`;
+                    areaPath.setAttribute('d', areaD);
+                    areaPath.setAttribute('fill', color);
+                    areaPath.setAttribute('class', 'area-fill');
+                    svg.appendChild(areaPath);
+
+                    // Draw primary line
+                    const linePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    let pathD = `M ${xScale(data[0].timestamp)} ${yScale(data[0].probability)}`;
+                    data.forEach((d, i) => {
+                        if (i > 0) {
+                            pathD += ` L ${xScale(d.timestamp)} ${yScale(d.probability)}`;
+                        }
+                    });
+                    linePath.setAttribute('d', pathD);
+                    linePath.setAttribute('stroke', color);
+                    linePath.setAttribute('class', 'chart-line');
+                    svg.appendChild(linePath);
+
+                    // Draw primary data points
+                    data.forEach((d, i) => {
+                        if (i % 3 === 0 || i === data.length - 1) {
+                            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            circle.setAttribute('cx', xScale(d.timestamp));
+                            circle.setAttribute('cy', yScale(d.probability));
+                            circle.setAttribute('fill', color);
+                            circle.setAttribute('class', 'data-point');
+                            circle.addEventListener('mouseenter', (e) => this.showTooltip(e, d));
+                            circle.addEventListener('mouseleave', () => this.hideTooltip());
+                            svg.appendChild(circle);
+                        }
+                    });
+                }
+
+                // Draw extra series (audio) as line only
+                if (extraData.length > 0) {
+                    const extraPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    let extraD = `M ${xScale(extraData[0].timestamp)} ${yScale(extraData[0].probability)}`;
+                    extraData.forEach((d, i) => {
+                        if (i > 0) {
+                            extraD += ` L ${xScale(d.timestamp)} ${yScale(d.probability)}`;
+                        }
+                    });
+                    extraPath.setAttribute('d', extraD);
+                    extraPath.setAttribute('stroke', extraColor);
+                    extraPath.setAttribute('class', 'chart-line');
+                    svg.appendChild(extraPath);
+
+                    extraData.forEach((d, i) => {
+                        if (i % 3 === 0 || i === extraData.length - 1) {
+                            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            circle.setAttribute('cx', xScale(d.timestamp));
+                            circle.setAttribute('cy', yScale(d.probability));
+                            circle.setAttribute('fill', extraColor);
+                            circle.setAttribute('class', 'data-point');
+                            circle.addEventListener('mouseenter', (e) => this.showTooltip(e, d));
+                            circle.addEventListener('mouseleave', () => this.hideTooltip());
+                            svg.appendChild(circle);
+                        }
+                    });
+                }
+
+                // Draw axes
+                const xAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                xAxis.setAttribute('x1', padding.left);
+                xAxis.setAttribute('y1', height - padding.bottom);
+                xAxis.setAttribute('x2', padding.left + chartWidth);
+                xAxis.setAttribute('y2', height - padding.bottom);
+                xAxis.setAttribute('stroke', 'var(--color-border)');
+                xAxis.setAttribute('stroke-width', '2');
+                svg.appendChild(xAxis);
+
+                const yAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                yAxis.setAttribute('x1', padding.left);
+                yAxis.setAttribute('y1', padding.top);
+                yAxis.setAttribute('x2', padding.left);
+                yAxis.setAttribute('y2', height - padding.bottom);
+                yAxis.setAttribute('stroke', 'var(--color-border)');
+                yAxis.setAttribute('stroke-width', '2');
+                svg.appendChild(yAxis);
+
+                // X-axis label
+                const xLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                xLabel.setAttribute('x', padding.left + chartWidth / 2);
+                xLabel.setAttribute('y', height - 10);
+                xLabel.setAttribute('text-anchor', 'middle');
+                xLabel.setAttribute('class', 'axis-label');
+                xLabel.textContent = 'Time (seconds ago)';
+                svg.appendChild(xLabel);
+
+                // Y-axis label
+                const yLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                yLabel.setAttribute('x', -height / 2);
+                yLabel.setAttribute('y', 20);
+                yLabel.setAttribute('text-anchor', 'middle');
+                yLabel.setAttribute('transform', `rotate(-90, 20, ${height / 2})`);
+                yLabel.setAttribute('class', 'axis-label');
+                yLabel.textContent = 'Deepfake Probability';
+                svg.appendChild(yLabel);
+            },
+
+            showTooltip(event, data) {
+                const tooltip = document.getElementById('tooltip');
+                const time = new Date(data.timestamp).toLocaleTimeString();
+                const prob = (data.probability * 100).toFixed(1);
+                
+                tooltip.innerHTML = `<strong>${time}</strong><br>Probability: ${prob}%`;
+                tooltip.style.left = event.pageX + 10 + 'px';
+                tooltip.style.top = event.pageY - 30 + 'px';
+                tooltip.style.opacity = '1';
+            },
+
+            hideTooltip() {
+                document.getElementById('tooltip').style.opacity = '0';
+            },
+
+            toggleAutoRefresh() {
+                this.autoRefresh = !this.autoRefresh;
+                const btn = document.getElementById('refreshBtn');
+                btn.textContent = `Auto-Refresh: ${this.autoRefresh ? 'ON' : 'OFF'}`;
+                
+                if (this.autoRefresh) {
+                    this.startAutoRefresh();
+                } else {
+                    this.stopAutoRefresh();
+                }
+            },
+
+            startAutoRefresh() {
+                if (this.refreshInterval) clearInterval(this.refreshInterval);
+                this.refreshInterval = setInterval(() => {
+                    if (this.autoRefresh) {
+                        this.fetchData();
+                        this.loadActiveUsers();
+                    }
+                }, 1000);
+            },
+
+            stopAutoRefresh() {
+                if (this.refreshInterval) {
+                    clearInterval(this.refreshInterval);
+                    this.refreshInterval = null;
+                }
+            },
+
+            clearData() {
+                this.data = [];
+                this.smoothData = [];
+                this.updateUI();
+            }
+        };
+
+        // Initialize app when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => app.init());
+    </script>
+</body>
+</html>

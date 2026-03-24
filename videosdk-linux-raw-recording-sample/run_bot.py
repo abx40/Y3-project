@@ -85,7 +85,7 @@ def run_docker(repo_root: str, image: str = "vsdk-1.11.2-on-ubuntu") -> None:
 
     analyzer_url = os.environ.get(
         "ANALYZER_URL",
-        "http://host.docker.internal:9001/analyze_frame"
+        "http://host.docker.internal:8001/frame"
     )
     # ANALYZER_AUDIO_URL intentionally disabled while running video-only.
 

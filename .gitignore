@@ -18,5 +18,9 @@ __pycache__/
 # Built assets / node modules (not present, but keep them out)
 node_modules/
 
-# Skip the frame analyzer (maintained separately)
-zoom-frame-server/
+# Frame server local artifacts
+zoom-frame-server/venv/
+zoom-frame-server/frames/
+zoom-frame-server/model.safetensors
+zoom-frame-server/config*.json
+zoom-frame-server/preprocessor_config*.json
