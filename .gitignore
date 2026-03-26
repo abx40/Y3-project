@@ -14,9 +14,14 @@ __pycache__/
 # Logs
 *.log
 *.log.*
+results/
+results_scored/
+results_scored_v2/
+results_diagnostics/
 
 # Built assets / node modules (not present, but keep them out)
 node_modules/
+tools/
 
 # Frame server local artifacts
 zoom-frame-server/venv/
@@ -24,3 +29,11 @@ zoom-frame-server/frames/
 zoom-frame-server/model.safetensors
 zoom-frame-server/config*.json
 zoom-frame-server/preprocessor_config*.json
+zoom-frame-server/models/train_on_df40/
+zoom-frame-server/models/aasist/
+zoom-frame-server/models/pretrained.zip
+zoom-frame-server/tmp-ffpp/
+zoom-frame-server/zoom-frame-server.code-workspace
+
+# Local secrets
+zoom-token-server/.env

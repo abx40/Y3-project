@@ -108,6 +108,15 @@ MODEL_CHECKPOINT = None
 MODEL_FAKE_INDEX = 1
 VIDEO_MODEL = os.getenv("VIDEO_MODEL", "xception_df40").strip().lower()
 ACTIVE_VIDEO_MODEL = VIDEO_MODEL
+AVAILABLE_VIDEO_MODELS = [
+    "auto",
+    "xception_df40",
+    "effort_clip_l14",
+    "efficientnet_b4",
+    "f3net",
+    "i3d",
+    "videomae",
+]
 PRED_HISTORY = defaultdict(lambda: deque(maxlen=15))  # rolling window per user
 
 # Keep a longer, time-stamped history per user for plotting (last ~60s)
@@ -155,9 +164,21 @@ RUN_START_WALL = None
 RUN_DIR = None
 RUN_META_PATH = None
 PRED_LOG_PATH = None
+PRED_JSONL_PATH = None
+AUTOMATION_LOG_PATH = None
 FRAME_DECISION_IDX = 0
 PARTICIPANT_START_MONO = {}
 PRED_LOG_LOCK = threading.Lock()
+AUTOMATION_LOCK = threading.Lock()
+AUTOMATION_EVENTS = deque(maxlen=200)
+AUTOMATION_STATUS = {
+    "connected": False,
+    "camera_selected": False,
+    "video_started": False,
+    "last_event": None,
+    "last_error": None,
+    "recent_events": [],
+}
 
 
 def _skip_user(user_id: str) -> bool:
@@ -168,7 +189,24 @@ XCEPTION_CKPT = os.getenv("XCEPTION_CKPT", "./models/train_on_df40/xception.pth"
 XCEPTION_IMG_SIZE = 256
 XCEPTION_MEAN = [0.5, 0.5, 0.5]
 XCEPTION_STD = [0.5, 0.5, 0.5]
-EFFORT_CKPT = os.getenv("EFFORT_CKPT", "./models/effort/effort_ffpp_clip_l14.pth")
+
+
+def resolve_default_checkpoint(env_name: str, *candidates: str) -> str:
+    env_value = os.getenv(env_name, "").strip()
+    if env_value:
+        return env_value
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    return candidates[0] if candidates else ""
+
+
+EFFORT_CKPT = resolve_default_checkpoint(
+    "EFFORT_CKPT",
+    "./models/effort/effort_ffpp_clip_l14.pth",
+    "./models/train_on_df40/clip_large.pth",
+    "./models/train_on_df40/clip.pth",
+)
 EFFICIENTNET_CKPT = os.getenv("EFFICIENTNET_CKPT", "./models/train_on_df40/efficientnet_b4.pth")
 F3NET_CKPT = os.getenv("F3NET_CKPT", "./models/train_on_df40/f3net_best.pth")
 I3D_CKPT = os.getenv("I3D_CKPT", "./models/train_on_df40/i3d.pth")
@@ -337,6 +375,61 @@ PREDICTION_COLUMNS = [
 ]
 
 
+def _write_jsonl_line(path: str, row: dict):
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=True) + "\n")
+
+
+def reset_automation_state():
+    global AUTOMATION_EVENTS, AUTOMATION_STATUS
+    AUTOMATION_EVENTS = deque(maxlen=200)
+    AUTOMATION_STATUS = {
+        "connected": False,
+        "camera_selected": False,
+        "video_started": False,
+        "last_event": None,
+        "last_error": None,
+        "recent_events": [],
+    }
+
+
+def _update_automation_status(event_name: str, detail: dict):
+    AUTOMATION_STATUS["last_event"] = event_name
+    if event_name in {"connected", "join_success"}:
+        AUTOMATION_STATUS["connected"] = True
+    elif event_name in {"connection_closed", "join_failed"}:
+        AUTOMATION_STATUS["connected"] = False
+    if event_name == "camera_selected":
+        AUTOMATION_STATUS["camera_selected"] = True
+    elif event_name == "camera_missing":
+        AUTOMATION_STATUS["camera_selected"] = False
+    if event_name == "video_started":
+        AUTOMATION_STATUS["video_started"] = True
+    elif event_name in {"video_stopped", "video_start_failed"}:
+        AUTOMATION_STATUS["video_started"] = False
+    if event_name.endswith("failed") or event_name.endswith("error") or event_name in {"camera_missing"}:
+        AUTOMATION_STATUS["last_error"] = detail.get("error") or detail.get("reason") or event_name
+
+
+def log_automation_event(event_name: str, detail: dict):
+    if not event_name:
+        event_name = "unknown"
+    record = {
+        "event": event_name,
+        "detail": detail,
+        "server_time_unix": time.time(),
+        "server_time_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "run_id": RUN_ID,
+        "session_id": SESSION_ID,
+    }
+    with AUTOMATION_LOCK:
+        AUTOMATION_EVENTS.append(record)
+        _update_automation_status(event_name, detail)
+        AUTOMATION_STATUS["recent_events"] = list(AUTOMATION_EVENTS)
+        if AUTOMATION_LOG_PATH:
+            _write_jsonl_line(AUTOMATION_LOG_PATH, record)
+
+
 def _get_git_commit():
     try:
         repo_dir = Path(__file__).resolve().parent
@@ -449,7 +542,8 @@ def _resolve_checkpoint_name():
 
 def init_eval_run():
     global RUN_ID, RUN_START_MONO, RUN_START_WALL
-    global RUN_DIR, RUN_META_PATH, PRED_LOG_PATH, FRAME_DECISION_IDX
+    global RUN_DIR, RUN_META_PATH, PRED_LOG_PATH, PRED_JSONL_PATH
+    global AUTOMATION_LOG_PATH, FRAME_DECISION_IDX
     global PARTICIPANT_START_MONO
 
     if not RUN_ID:
@@ -465,6 +559,9 @@ def init_eval_run():
     RUN_DIR = str(run_dir)
     RUN_META_PATH = str(run_dir / "run_meta.json")
     PRED_LOG_PATH = str(run_dir / "predictions.csv")
+    PRED_JSONL_PATH = str(run_dir / "predictions.jsonl")
+    AUTOMATION_LOG_PATH = str(run_dir / "web_client.log")
+    reset_automation_state()
 
     run_meta = {
         "run_id": RUN_ID,
@@ -487,6 +584,9 @@ def init_eval_run():
         "face_margin": FACE_MARGIN,
         "face_min_bbox_area_ratio": FACE_MIN_BBOX_AREA_RATIO,
         "face_min_crop_side_ratio": FACE_MIN_CROP_SIDE_RATIO,
+        "predictions_csv": PRED_LOG_PATH,
+        "predictions_jsonl": PRED_JSONL_PATH,
+        "web_client_log": AUTOMATION_LOG_PATH,
     }
 
     with open(RUN_META_PATH, "w", encoding="utf-8") as f:
@@ -495,6 +595,10 @@ def init_eval_run():
     with open(PRED_LOG_PATH, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=PREDICTION_COLUMNS)
         writer.writeheader()
+    with open(PRED_JSONL_PATH, "w", encoding="utf-8") as f:
+        f.write("")
+    with open(AUTOMATION_LOG_PATH, "w", encoding="utf-8") as f:
+        f.write("")
 
     print(f"[EVAL] run_id={RUN_ID}")
     print(f"[EVAL] prediction_log={PRED_LOG_PATH}")
@@ -502,12 +606,13 @@ def init_eval_run():
 
 
 def write_prediction_row(row):
-    if not PRED_LOG_PATH:
+    if not PRED_LOG_PATH or not PRED_JSONL_PATH:
         return
     with PRED_LOG_LOCK:
         with open(PRED_LOG_PATH, "a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=PREDICTION_COLUMNS)
             writer.writerow(row)
+        _write_jsonl_line(PRED_JSONL_PATH, row)
 
 
 def load_model():
@@ -575,7 +680,11 @@ def load_model():
         MODEL = model
         MODEL_NAME = "Effort CLIP-L14"
         MODEL_DEVICE = str(DEVICE)
-        MODEL_STRICT_LOAD = (report.loaded_ratio > 0.98)
+        MODEL_STRICT_LOAD = (
+            report.loaded_ratio > 0.98
+            and report.head_weight_loaded
+            and report.head_bias_loaded
+        )
         MODEL_CHECKPOINT = EFFORT_CKPT
         MODEL_FAKE_INDEX = 1
         TRANSFORM = T.Compose([
@@ -586,7 +695,11 @@ def load_model():
         print(
             "[DF] Effort checkpoint loaded "
             f"(mode={report.mode}, loaded_ratio={report.loaded_ratio:.3f}, "
-            f"missing={report.missing_count}, unexpected={report.unexpected_count})."
+            f"missing={report.missing_count}, unexpected={report.unexpected_count}, "
+            f"head.weight_in_ckpt={report.head_weight_in_checkpoint}, "
+            f"head.weight_loaded={report.head_weight_loaded}, "
+            f"head.bias_in_ckpt={report.head_bias_in_checkpoint}, "
+            f"head.bias_loaded={report.head_bias_loaded})."
         )
 
     def _load_efficientnet_b4():
@@ -1316,6 +1429,26 @@ async def presence(payload: dict):
     return {"status": "ok"}
 
 
+@app.post("/automation/event")
+async def automation_event(payload: dict):
+    event_name = str(payload.get("event") or payload.get("type") or "unknown")
+    detail = payload.get("detail")
+    if not isinstance(detail, dict):
+        detail = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"event", "type"}
+        }
+    log_automation_event(event_name, detail)
+    return {"status": "ok", "event": event_name}
+
+
+@app.get("/automation/status")
+async def get_automation_status():
+    with AUTOMATION_LOCK:
+        return dict(AUTOMATION_STATUS)
+
+
 @app.get("/info")
 async def get_info():
     return {
@@ -1338,7 +1471,7 @@ async def get_info():
         "videomae_clip_size": VIDEOMAE_CLIP_SIZE,
         "videomae_infer_every": VIDEOMAE_INFER_EVERY,
         "model_checkpoint": MODEL_CHECKPOINT,
-        "available_video_models": ["auto", "xception_df40", "effort_clip_l14", "efficientnet_b4", "f3net", "i3d", "videomae"],
+        "available_video_models": AVAILABLE_VIDEO_MODELS,
         "enable_deepfake": ENABLE_DEEPFAKE,
         "save_raw": SAVE_RAW,
         "save_png": SAVE_PNG,
@@ -1374,7 +1507,7 @@ def parse_cli_args():
         "--video_model",
         type=str,
         default=VIDEO_MODEL,
-        choices=["auto", "xception_df40", "effort_clip_l14", "efficientnet_b4", "f3net", "i3d", "videomae"],
+        choices=AVAILABLE_VIDEO_MODELS,
         help="Selectable video model backend.",
     )
     parser.add_argument(

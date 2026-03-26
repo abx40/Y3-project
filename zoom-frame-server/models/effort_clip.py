@@ -41,6 +41,10 @@ class EffortLoadReport:
     loaded_ratio: float
     missing_count: int
     unexpected_count: int
+    head_weight_in_checkpoint: bool
+    head_bias_in_checkpoint: bool
+    head_weight_loaded: bool
+    head_bias_loaded: bool
 
 
 class SVDResidualLinear(nn.Module):
@@ -209,9 +213,12 @@ def load_effort_clip_l14_model(
     raw = torch.load(checkpoint_path, map_location="cpu")
     cleaned = _clean_state_dict(raw)
     use_svd = _has_effort_svd_keys(cleaned)
+    head_weight_in_checkpoint = "head.weight" in cleaned
+    head_bias_in_checkpoint = "head.bias" in cleaned
 
     model = EffortClipL14(use_svd_residual=use_svd)
     missing, unexpected = model.load_state_dict(cleaned, strict=False)
+    missing_set = set(missing)
 
     total = max(1, len(model.state_dict()))
     loaded = total - len(missing)
@@ -222,9 +229,12 @@ def load_effort_clip_l14_model(
         loaded_ratio=loaded_ratio,
         missing_count=len(missing),
         unexpected_count=len(unexpected),
+        head_weight_in_checkpoint=head_weight_in_checkpoint,
+        head_bias_in_checkpoint=head_bias_in_checkpoint,
+        head_weight_loaded=head_weight_in_checkpoint and ("head.weight" not in missing_set),
+        head_bias_loaded=head_bias_in_checkpoint and ("head.bias" not in missing_set),
     )
 
     model = model.to(device)
     model.eval()
     return model, report
-
