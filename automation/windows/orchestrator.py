@@ -495,23 +495,6 @@ def build_browser_url(
     return f"http://127.0.0.1:{web_port}/video?{urllib.parse.urlencode(params)}"
 
 
-def build_dashboard_url(
-    frame_port: int,
-    run_id: str,
-    session_name: str,
-    model_backend: str,
-    user_id: str | None = None,
-) -> str:
-    params = {
-        "run_id": run_id,
-        "session_name": session_name,
-        "model_backend": model_backend,
-    }
-    if user_id:
-        params["user_id"] = user_id
-    return f"http://127.0.0.1:{frame_port}/?{urllib.parse.urlencode(params)}"
-
-
 def fetch_participant_token(token_port: int, session_name: str) -> str:
     response = http_post_json(
         f"http://127.0.0.1:{token_port}/token",
@@ -652,7 +635,6 @@ def run_single(
     token_proc = None
     frame_proc = None
     browser_proc = None
-    dashboard_proc = None
     bot_proc = None
     obs = None
     final_status = "failed"
@@ -747,13 +729,6 @@ def run_single(
         )
         (run_dir / "browser_url.txt").write_text(f"{browser_url}\n", encoding="utf-8")
         preflight_web_assets(args.web_port, run_dir / "web_asset_probe.json")
-        dashboard_url = build_dashboard_url(
-            args.frame_port,
-            run_id,
-            session_name,
-            model,
-        )
-        (run_dir / "dashboard_url.txt").write_text(f"{dashboard_url}\n", encoding="utf-8")
 
         browser_profile_dir = results_dir / "browser-profile" / run_id
         browser_profile_dir.mkdir(parents=True, exist_ok=True)
@@ -775,25 +750,6 @@ def run_single(
         )
         browser_proc.start()
         wait_for_automation_ready(args.frame_port, args.web_ready_timeout_seconds)
-
-        if not args.skip_bot:
-            dashboard_profile_dir = results_dir / "browser-profile" / f"{run_id}__dashboard"
-            dashboard_profile_dir.mkdir(parents=True, exist_ok=True)
-            dashboard_proc = ManagedProcess(
-                "dashboard",
-                [
-                    str(browser_path),
-                    "--new-window",
-                    f"--user-data-dir={dashboard_profile_dir}",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--window-size=1400,1000",
-                    dashboard_url,
-                ],
-                REPO_ROOT,
-                run_dir / "dashboard_process.log",
-            )
-            dashboard_proc.start()
 
         obs.restart_media_input(args.obs_input)
         time.sleep(1.0)
@@ -837,8 +793,6 @@ def run_single(
         error_message = str(exc)
         final_status = "failed"
     finally:
-        if dashboard_proc is not None:
-            dashboard_proc.terminate()
         if browser_proc is not None:
             browser_proc.terminate()
         if bot_proc is not None:
