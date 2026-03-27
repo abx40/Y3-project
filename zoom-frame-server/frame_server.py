@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 import argparse
 import csv
 import os
@@ -74,6 +74,9 @@ except Exception:
 # Toggle saving of raw and PNG files
 SAVE_RAW = os.getenv("SAVE_RAW", "0").strip().lower() in {"1", "true", "yes", "on"}
 SAVE_PNG = os.getenv("SAVE_PNG", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+APP_DIR = Path(__file__).resolve().parent
+DASHBOARD_HTML = APP_DIR / "index.html"
 
 
 # Toggle deepfake inference
@@ -1395,14 +1398,23 @@ async def root():
     """
     Serve the dashboard HTML
     """
-    # You can serve the dashboard.html file here or redirect to it
-    return {"message": "Deepfake Detection API", "endpoints": {
-        "POST /frame": "Receive video frame for analysis",
-        "GET /data/{user_id}": "Get detection data for user",
-        "GET /users": "Get list of active users",
-        "GET /plot/{user_id}": "Simple SVG plot (legacy)",
-        "GET /live/{user_id}": "Auto-refresh plot (legacy)"
-    }}
+    return FileResponse(DASHBOARD_HTML, media_type="text/html")
+
+
+@app.get("/health")
+async def health():
+    return {
+        "message": "Deepfake Detection API",
+        "status": "ok",
+        "endpoints": {
+            "POST /frame": "Receive video frame for analysis",
+            "GET /data/{user_id}": "Get detection data for user",
+            "GET /users": "Get list of active users",
+            "GET /plot/{user_id}": "Simple SVG plot (legacy)",
+            "GET /live/{user_id}": "Auto-refresh plot (legacy)",
+            "GET /info": "Runtime and model configuration",
+        },
+    }
 
 
 # =========================
