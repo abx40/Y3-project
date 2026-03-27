@@ -69,6 +69,34 @@
             font-size: 14px;
         }
 
+        .context-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .context-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--color-border);
+            background: var(--color-surface);
+            font-size: 12px;
+            color: var(--color-text-secondary);
+        }
+
+        .context-pill strong {
+            color: var(--color-text);
+            font-weight: 600;
+        }
+
+        .context-pill.waiting {
+            border-style: dashed;
+        }
+
         .controls {
             background: var(--color-surface);
             border: 1px solid var(--color-border);
@@ -378,6 +406,12 @@
             border-radius: 2px;
         }
 
+        .empty-state {
+            color: var(--color-text-secondary);
+            text-align: center;
+            padding: 20px;
+        }
+
         @media (max-width: 1200px) {
             .grid {
                 grid-template-columns: 1fr;
@@ -390,6 +424,9 @@
         <header>
             <h1>Deepfake Detection Monitor</h1>
             <p class="subtitle">Real-time deepfake probability tracking across video streams</p>
+            <div class="context-strip" id="runContext">
+                <span class="context-pill waiting">Waiting for live run context</span>
+            </div>
         </header>
 
         <div class="controls">
@@ -409,7 +446,7 @@
                 </div>
                 <div>
                     <label for="threshold">Alert Threshold:</label>
-                    <input type="number" id="threshold" min="0" max="1" step="0.05" value="0.7">
+                    <input type="number" id="threshold" min="0" max="1" step="0.05" value="0.7" readonly>
                 </div>
                 <button onclick="app.loadUser()">Load User</button>
                 <button onclick="app.toggleAutoRefresh()" id="refreshBtn">Auto-Refresh: ON</button>
@@ -490,9 +527,7 @@
                 <h2 class="card-title">Active Users</h2>
             </div>
             <div class="user-list" id="userList">
-                <p style="color: var(--color-text-secondary); text-align: center; padding: 20px;">
-                    No users detected yet. Data will appear when frames are received.
-                </p>
+                <p class="empty-state">Waiting for incoming frames / active user</p>
             </div>
         </div>
     </div>
@@ -503,6 +538,7 @@
         const API_BASE = `${window.location.protocol === 'file:' ? 'http:' : window.location.protocol}//${window.location.hostname || 'localhost'}:8001`;
         const app = {
             currentUser: '',
+            requestedUserId: '',
             autoRefresh: true,
             refreshInterval: null,
             data: [],
@@ -514,13 +550,87 @@
             threshold: 0.7,
             timeWindow: 60,
             modelInfo: { model: '--', device: '--', face_crop_mode: '--' },
+            runContext: {
+                run_id: '',
+                session_name: '',
+                model_backend: '',
+                active_user: '',
+            },
 
             init() {
+                this.parseRunContext();
+                this.renderRunContext();
                 this.setupCharts();
                 this.loadInfo();
                 this.startAutoRefresh();
-                this.loadUser();
+                if (this.requestedUserId) {
+                    this.loadUser(this.requestedUserId);
+                }
                 this.loadActiveUsers();
+            },
+
+            escapeHtml(value) {
+                return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;',
+                }[char]));
+            },
+
+            parseRunContext() {
+                const params = new URLSearchParams(window.location.search);
+                this.runContext.run_id = params.get('run_id') || '';
+                this.runContext.session_name = params.get('session_name') || '';
+                this.runContext.model_backend = params.get('model_backend') || '';
+                this.requestedUserId = params.get('user_id') || '';
+                if (this.requestedUserId) {
+                    this.runContext.active_user = this.requestedUserId;
+                    document.getElementById('userSelect').value = this.requestedUserId;
+                }
+            },
+
+            renderRunContext() {
+                const container = document.getElementById('runContext');
+                const chips = [];
+                if (this.runContext.run_id) {
+                    chips.push(`<span class="context-pill">Run <strong>${this.escapeHtml(this.runContext.run_id)}</strong></span>`);
+                }
+                if (this.runContext.session_name) {
+                    chips.push(`<span class="context-pill">Session <strong>${this.escapeHtml(this.runContext.session_name)}</strong></span>`);
+                }
+                if (this.runContext.model_backend) {
+                    chips.push(`<span class="context-pill">Backend <strong>${this.escapeHtml(this.runContext.model_backend)}</strong></span>`);
+                }
+                if (this.runContext.active_user) {
+                    chips.push(`<span class="context-pill">Active User <strong>${this.escapeHtml(this.runContext.active_user)}</strong></span>`);
+                }
+                if (chips.length === 0) {
+                    chips.push('<span class="context-pill waiting">Waiting for live run context</span>');
+                }
+                container.innerHTML = chips.join('');
+            },
+
+            mergeRuntimeContext(info) {
+                if (!this.runContext.run_id && info.run_id) {
+                    this.runContext.run_id = info.run_id;
+                }
+                if (!this.runContext.session_name && info.session_id) {
+                    this.runContext.session_name = info.session_id;
+                }
+                if (!this.runContext.model_backend) {
+                    this.runContext.model_backend = info.active_video_model || info.video_model || info.model || '';
+                }
+                this.renderRunContext();
+            },
+
+            setCurrentUser(userId) {
+                if (!userId) return;
+                this.currentUser = userId;
+                this.runContext.active_user = userId;
+                document.getElementById('userSelect').value = userId;
+                this.renderRunContext();
             },
 
             setupCharts() {
@@ -534,24 +644,29 @@
                     const resp = await fetch(`${API_BASE}/info`);
                     if (!resp.ok) return;
                     this.modelInfo = await resp.json();
-                    document.getElementById('modelName').textContent = this.modelInfo.model || '--';
+                    this.mergeRuntimeContext(this.modelInfo);
+                    document.getElementById('modelName').textContent =
+                        this.modelInfo.active_video_model || this.modelInfo.video_model || this.modelInfo.model || '--';
                     document.getElementById('modelDevice').textContent = this.modelInfo.device || '--';
                     const mode = (this.modelInfo.face_crop_mode || '--').toLowerCase();
                     document.getElementById('faceCropMode').textContent = mode === 'on' ? 'ON' : (mode === 'off' ? 'OFF' : '--');
-                    if (typeof this.modelInfo.threshold === 'number') {
-                        this.threshold = this.modelInfo.threshold;
-                        document.getElementById('threshold').value = this.modelInfo.threshold;
+                    const configuredThreshold = typeof this.modelInfo.dashboard_threshold === 'number'
+                        ? this.modelInfo.dashboard_threshold
+                        : (typeof this.modelInfo.threshold === 'number' ? this.modelInfo.threshold : null);
+                    if (typeof configuredThreshold === 'number') {
+                        this.threshold = configuredThreshold;
+                        document.getElementById('threshold').value = configuredThreshold;
                     }
                 } catch (error) {
                     console.error('Error fetching model info:', error);
                 }
             },
 
-            async loadUser() {
-                const userId = document.getElementById('userSelect').value.trim();
+            async loadUser(userIdOverride = '') {
+                const userId = (userIdOverride || document.getElementById('userSelect').value).trim();
                 if (!userId) return;
                 
-                this.currentUser = userId;
+                this.setCurrentUser(userId);
                 this.timeWindow = parseInt(document.getElementById('timeWindow').value);
                 this.threshold = parseFloat(document.getElementById('threshold').value);
                 
@@ -598,23 +713,32 @@
                 }
             },
 
+            resolveActiveUser(users) {
+                if (this.requestedUserId) {
+                    const requestedUser = users.find((user) => user.user_id === this.requestedUserId);
+                    return requestedUser ? requestedUser.user_id : '';
+                }
+                const knownUserIds = new Set(users.map((user) => user.user_id));
+                if (!this.currentUser || !knownUserIds.has(this.currentUser)) {
+                    return users[0]?.user_id || '';
+                }
+                return this.currentUser;
+            },
+
             updateUserList(users) {
                 const userList = document.getElementById('userList');
                 
                 if (users.length === 0) {
-                    userList.innerHTML = `
-                        <p style="color: var(--color-text-secondary); text-align: center; padding: 20px;">
-                            No active users detected. Waiting for frame data...
-                        </p>
-                    `;
+                    this.runContext.active_user = this.requestedUserId || '';
+                    this.renderRunContext();
+                    userList.innerHTML = '<p class="empty-state">Waiting for incoming frames / active user</p>';
                     return;
                 }
                 
                 userList.innerHTML = '';
-                const userIds = users.map(u => u.user_id);
-                if (!this.currentUser || !userIds.includes(this.currentUser)) {
-                    this.currentUser = users[0].user_id;
-                    document.getElementById('userSelect').value = this.currentUser;
+                const resolvedUserId = this.resolveActiveUser(users);
+                if (resolvedUserId && resolvedUserId !== this.currentUser) {
+                    this.setCurrentUser(resolvedUserId);
                     this.fetchData();
                 }
 
@@ -622,16 +746,14 @@
                     const div = document.createElement('div');
                     div.className = 'user-item' + (user.user_id === this.currentUser ? ' selected' : '');
                     div.onclick = () => {
-                        document.getElementById('userSelect').value = user.user_id;
-                        this.loadUser();
+                        this.loadUser(user.user_id);
                     };
                     
                     const initials = user.user_id.substring(0, 2).toUpperCase();
                     const lastSeen = new Date(user.last_seen).toLocaleTimeString();
-                    const riskLevel = user.last_probability > 0.7 ? 'High Risk' : 
-                                     user.last_probability > 0.5 ? 'Medium Risk' : 'Low Risk';
-                    const badgeClass = user.last_probability > 0.7 ? 'danger' : 
-                                      user.last_probability > 0.5 ? 'warning' : 'live';
+                    const warningThreshold = Math.max(this.threshold * 0.7, 0.01);
+                    const badgeClass = user.last_probability > this.threshold ? 'danger' : 
+                                      user.last_probability > warningThreshold ? 'warning' : 'live';
                     const videoBadge = user.frame_count > 0 ?
                         '<span class="badge live">Video</span>' :
                         '<span class="badge inactive">Video</span>';
@@ -680,7 +802,11 @@
 
             updateStatusBadge() {
                 const badge = document.getElementById('statusBadge');
-                if (this.data.length === 0) return;
+                if (this.data.length === 0) {
+                    badge.className = 'badge inactive';
+                    badge.textContent = 'Waiting for incoming frames';
+                    return;
+                }
 
                 const latest = this.data[this.data.length - 1].probability;
                 
