@@ -13,6 +13,7 @@ import socket
 import platform
 import subprocess
 import threading
+import webbrowser
 from pathlib import Path
 import numpy as np
 from PIL import Image
@@ -76,7 +77,70 @@ SAVE_RAW = os.getenv("SAVE_RAW", "0").strip().lower() in {"1", "true", "yes", "o
 SAVE_PNG = os.getenv("SAVE_PNG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 APP_DIR = Path(__file__).resolve().parent
-DASHBOARD_HTML = APP_DIR / "index.html"
+LEGACY_DASHBOARD_HTML = APP_DIR / "index.html"
+DEFAULT_DASHBOARD_HTML = APP_DIR / "dashboard_v2.html"
+DASHBOARD_HTML = DEFAULT_DASHBOARD_HTML if DEFAULT_DASHBOARD_HTML.is_file() else LEGACY_DASHBOARD_HTML
+REPO_ROOT = APP_DIR.parent
+
+_CALIBRATION_THRESHOLDS_CACHE = None
+_CALIBRATION_THRESHOLDS_SOURCE = None
+
+
+def load_calibration_thresholds():
+    global _CALIBRATION_THRESHOLDS_CACHE, _CALIBRATION_THRESHOLDS_SOURCE
+    if _CALIBRATION_THRESHOLDS_CACHE is not None:
+        return _CALIBRATION_THRESHOLDS_CACHE
+
+    candidates = []
+    env_path = os.getenv("CALIBRATION_THRESHOLDS_JSON", "").strip()
+    if env_path:
+        candidates.append(Path(env_path))
+    candidates.extend([
+        REPO_ROOT / "results_scored_v2" / "thresholds.json",
+        REPO_ROOT / "results_scored" / "thresholds.json",
+    ])
+
+    for path in candidates:
+        try:
+            if not path.is_file():
+                continue
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                _CALIBRATION_THRESHOLDS_CACHE = data
+                _CALIBRATION_THRESHOLDS_SOURCE = str(path)
+                return data
+        except Exception as exc:
+            print(f"[WARN] Failed to load calibration thresholds from {path}: {exc}")
+
+    _CALIBRATION_THRESHOLDS_CACHE = {}
+    _CALIBRATION_THRESHOLDS_SOURCE = None
+    return _CALIBRATION_THRESHOLDS_CACHE
+
+
+def get_dashboard_calibration_profile(backend_name: str | None):
+    backend_name = str(backend_name or "").strip()
+    if not backend_name:
+        return None
+
+    entry = load_calibration_thresholds().get(backend_name)
+    if not isinstance(entry, dict):
+        return None
+
+    selected = entry.get("selected")
+    if not isinstance(selected, dict):
+        return None
+
+    return {
+        "backend": backend_name,
+        "source": _CALIBRATION_THRESHOLDS_SOURCE,
+        "signal_source": entry.get("signal_source"),
+        "polarity": entry.get("polarity") or "high",
+        "threshold": selected.get("threshold"),
+        "t_on": selected.get("t_on", selected.get("threshold")),
+        "t_off": selected.get("t_off"),
+        "persistence_windows": selected.get("persistence_windows"),
+        "policy": selected.get("policy"),
+    }
 
 
 # Toggle deepfake inference
@@ -1463,6 +1527,8 @@ async def get_automation_status():
 
 @app.get("/info")
 async def get_info():
+    calibration = get_dashboard_calibration_profile(ACTIVE_VIDEO_MODEL)
+    dashboard_threshold = calibration.get("t_on") if calibration else DECISION_THRESHOLD
     return {
         "model": MODEL_NAME,
         "video_model": VIDEO_MODEL,
@@ -1490,6 +1556,16 @@ async def get_info():
         "run_id": RUN_ID,
         "session_id": SESSION_ID,
         "threshold": DECISION_THRESHOLD,
+        "runtime_threshold": DECISION_THRESHOLD,
+        "dashboard_threshold": dashboard_threshold,
+        "dashboard_threshold_source": "calibration" if calibration else "runtime",
+        "dashboard_signal_polarity": (calibration.get("polarity") if calibration else "high"),
+        "dashboard_signal_source": (calibration.get("signal_source") if calibration else None),
+        "dashboard_t_on": (calibration.get("t_on") if calibration else DECISION_THRESHOLD),
+        "dashboard_t_off": (calibration.get("t_off") if calibration else None),
+        "dashboard_persistence_windows": (calibration.get("persistence_windows") if calibration else None),
+        "dashboard_policy": (calibration.get("policy") if calibration else None),
+        "dashboard_calibration_file": (calibration.get("source") if calibration else None),
         "face_crop_mode": FACE_CROP_MODE,
         "face_detector": FACE_DETECTOR_NAME,
         "face_margin": FACE_MARGIN,
@@ -1593,6 +1669,7 @@ def parse_cli_args():
     parser.add_argument("--save_png", type=str, default=("on" if SAVE_PNG else "off"), choices=["on", "off"], help="Save full and cropped PNG frames to frames/.")
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8001)
+    parser.add_argument("--no_open_dashboard", action="store_true", help="Do not auto-open the dashboard in a browser on startup.")
     return parser.parse_args()
 
 
@@ -1642,4 +1719,22 @@ def apply_cli_config(args):
 if __name__ == "__main__":
     cli_args = parse_cli_args()
     apply_cli_config(cli_args)
+
+    if not cli_args.no_open_dashboard:
+        def open_dashboard_when_ready():
+            browser_host = cli_args.host if cli_args.host not in {"0.0.0.0", "::", ""} else "127.0.0.1"
+            dashboard_url = f"http://{browser_host}:{cli_args.port}/"
+            deadline = time.time() + 15.0
+            while time.time() < deadline:
+                try:
+                    with socket.create_connection((browser_host, cli_args.port), timeout=0.5):
+                        print(f"[INFO] Opening dashboard at {dashboard_url}")
+                        webbrowser.open(dashboard_url, new=1)
+                        return
+                except OSError:
+                    time.sleep(0.25)
+            print(f"[WARN] Dashboard auto-open timed out for {dashboard_url}")
+
+        threading.Thread(target=open_dashboard_when_ready, daemon=True).start()
+
     uvicorn.run(app, host=cli_args.host, port=cli_args.port, reload=False)
