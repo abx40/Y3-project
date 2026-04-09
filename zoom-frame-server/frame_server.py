@@ -295,10 +295,28 @@ def init_face_detector():
     FACE_DETECTOR_NAME = "none"
 
 
-def select_inference_crop(gray_frame: np.ndarray):
+def rgb_to_grayscale(frame: np.ndarray) -> np.ndarray:
+    if frame.ndim == 2:
+        return frame
+    if frame.ndim != 3 or frame.shape[2] != 3:
+        raise ValueError(f"Unsupported frame shape for grayscale conversion: {frame.shape}")
+    if cv2 is not None:
+        return cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    r = frame[:, :, 0].astype(np.float32)
+    g = frame[:, :, 1].astype(np.float32)
+    b = frame[:, :, 2].astype(np.float32)
+    return np.clip(0.299 * r + 0.587 * g + 0.114 * b, 0, 255).astype(np.uint8)
+
+
+def crop_frame(frame: np.ndarray, crop_box: tuple[int, int, int, int]) -> np.ndarray:
+    x0, y0, x1, y1 = crop_box
+    return frame[y0:y1, x0:x1]
+
+
+def select_inference_region(gray_frame: np.ndarray):
     """
     Returns:
-        crop, face_detected, num_faces, bbox_area, face_crop_size
+        crop_box, face_detected, num_faces, bbox_area, face_crop_size
     """
     h, w = gray_frame.shape[:2]
     num_faces = 0
@@ -340,18 +358,32 @@ def select_inference_crop(gray_frame: np.ndarray):
                     y1 = h
                     y0 = max(0, y1 - side)
 
-                face_crop = gray_frame[y0:y1, x0:x1]
+                crop_box = (x0, y0, x1, y1)
+                face_crop = crop_frame(gray_frame, crop_box)
                 if face_crop.size > 0:
                     face_crop_size = f"{x1 - x0}x{y1 - y0}"
-                    return face_crop, 1, num_faces, bbox_area, face_crop_size
+                    return crop_box, 1, num_faces, bbox_area, face_crop_size
 
     # Fallback to center square crop
     side = min(h, w)
     start_y = (h - side) // 2
     start_x = (w - side) // 2
-    center_crop = gray_frame[start_y:start_y + side, start_x:start_x + side]
+    crop_box = (start_x, start_y, start_x + side, start_y + side)
+    center_crop = crop_frame(gray_frame, crop_box)
     face_crop_size = f"{side}x{side}"
-    return center_crop, 0, num_faces, bbox_area, face_crop_size
+    return crop_box, 0, num_faces, bbox_area, face_crop_size
+
+
+def select_inference_crop(gray_frame: np.ndarray):
+    """
+    Backward-compatible wrapper for grayscale-first callers.
+
+    Returns:
+        crop, face_detected, num_faces, bbox_area, face_crop_size
+    """
+    crop_box, face_detected, num_faces, bbox_area, face_crop_size = select_inference_region(gray_frame)
+    crop = crop_frame(gray_frame, crop_box)
+    return crop, face_detected, num_faces, bbox_area, face_crop_size
 
 
 PREDICTION_COLUMNS = [
@@ -855,9 +887,12 @@ def load_model():
 
 
 
-def run_deepfake_inference(user_id: str, y_plane: np.ndarray):
+def run_deepfake_inference(user_id: str, frame_crop: np.ndarray):
     """
-    Run deepfake detection on a single grayscale frame (Y plane).
+    Run deepfake detection on a single cropped frame.
+
+    Grayscale crops are expanded to RGB for model input.
+    RGB crops preserve source colour through transforms.
 
 
     Returns (fake_prob, smoothed_fake_prob) or (None, None) if no model.
@@ -867,8 +902,12 @@ def run_deepfake_inference(user_id: str, y_plane: np.ndarray):
 
 
     try:
-        # y_plane: HxW uint8
-        pil_img = Image.fromarray(y_plane).convert("RGB")
+        if frame_crop.ndim == 2:
+            pil_img = Image.fromarray(frame_crop, mode="L").convert("RGB")
+        elif frame_crop.ndim == 3 and frame_crop.shape[2] == 3:
+            pil_img = Image.fromarray(frame_crop, mode="RGB")
+        else:
+            raise ValueError(f"Unsupported inference crop shape: {frame_crop.shape}")
         frame_tensor = TRANSFORM(pil_img)
 
         # Temporal model path (I3D / VideoMAE): score on a clip window per user.
@@ -1041,9 +1080,7 @@ async def receive_frame(request: Request):
     num_faces = 0
     bbox_area = None
     face_crop_size = None
-
-
-    # Convert raw frame into grayscale tensor input once.
+    # Decode raw frame, preserving colour when available.
     try:
         w = int(width)
         h = int(height)
@@ -1103,6 +1140,7 @@ async def receive_frame(request: Request):
         expected_gray = w * h
         expected_rgb = w * h * 3
         gray_img = None
+        color_img = None
 
         # Legacy grayscale payload
         if arr.size == expected_gray and (bytes_per_pixel in (0, 1)):
@@ -1112,25 +1150,23 @@ async def receive_frame(request: Request):
             rgb_img = arr.reshape((h, w, 3))
             if pixel_format in {"bgr", "bgr24"}:
                 if cv2 is not None:
-                    gray_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
+                    color_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2RGB)
                 else:
-                    r = rgb_img[:, :, 2].astype(np.float32)
-                    g = rgb_img[:, :, 1].astype(np.float32)
-                    b = rgb_img[:, :, 0].astype(np.float32)
-                    gray_img = np.clip(0.299 * r + 0.587 * g + 0.114 * b, 0, 255).astype(np.uint8)
+                    color_img = rgb_img[:, :, ::-1].copy()
             else:
-                if cv2 is not None:
-                    gray_img = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)
-                else:
-                    r = rgb_img[:, :, 0].astype(np.float32)
-                    g = rgb_img[:, :, 1].astype(np.float32)
-                    b = rgb_img[:, :, 2].astype(np.float32)
-                    gray_img = np.clip(0.299 * r + 0.587 * g + 0.114 * b, 0, 255).astype(np.uint8)
+                color_img = rgb_img
+            gray_img = rgb_to_grayscale(color_img)
 
         if gray_img is not None:
 
-            # Face crop (if enabled) with center-crop fallback.
-            arr_crop, face_detected, num_faces, bbox_area, face_crop_size = select_inference_crop(gray_img)
+            # Run face detection on grayscale, then crop the original colour frame if available.
+            crop_box, face_detected, num_faces, bbox_area, face_crop_size = select_inference_region(gray_img)
+            if color_img is not None:
+                arr_crop = crop_frame(color_img, crop_box)
+                full_frame = color_img
+            else:
+                arr_crop = crop_frame(gray_img, crop_box)
+                full_frame = gray_img
 
             # PNG saving
             if SAVE_PNG:
@@ -1138,8 +1174,12 @@ async def receive_frame(request: Request):
                 png_crop_filename = filename.replace(".raw", "_crop.png")
                 png_full_path = os.path.join(FRAME_DIR, png_full_filename)
                 png_crop_path = os.path.join(FRAME_DIR, png_crop_filename)
-                Image.fromarray(gray_img, mode="L").save(png_full_path)
-                Image.fromarray(arr_crop, mode="L").save(png_crop_path)
+                if full_frame.ndim == 3:
+                    Image.fromarray(full_frame, mode="RGB").save(png_full_path)
+                    Image.fromarray(arr_crop, mode="RGB").save(png_crop_path)
+                else:
+                    Image.fromarray(full_frame, mode="L").save(png_full_path)
+                    Image.fromarray(arr_crop, mode="L").save(png_crop_path)
                 print(f"[PNG] Saved full={png_full_path} crop={png_crop_path}")
 
             # Deepfake inference

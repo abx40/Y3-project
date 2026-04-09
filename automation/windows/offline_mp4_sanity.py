@@ -56,9 +56,18 @@ def init_runtime(frame_server, model_key: str):
 
 
 def preprocess_frame(frame_server, bgr_frame: np.ndarray):
-    gray = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2GRAY)
-    crop, face_detected, num_faces, bbox_area, face_crop_size = frame_server.select_inference_crop(gray)
-    pil_crop_rgb = Image.fromarray(crop).convert("RGB")
+    if bgr_frame.ndim == 2:
+        source_frame = bgr_frame
+        gray = bgr_frame
+    else:
+        source_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
+        gray = frame_server.rgb_to_grayscale(source_frame)
+    crop_box, face_detected, num_faces, bbox_area, face_crop_size = frame_server.select_inference_region(gray)
+    crop = frame_server.crop_frame(source_frame, crop_box)
+    if crop.ndim == 2:
+        pil_crop_rgb = Image.fromarray(crop, mode="L").convert("RGB")
+    else:
+        pil_crop_rgb = Image.fromarray(crop, mode="RGB")
     resized_rgb = pil_crop_rgb
     if hasattr(frame_server, "TRANSFORM") and hasattr(frame_server.TRANSFORM, "transforms"):
         for step in frame_server.TRANSFORM.transforms:
@@ -70,7 +79,7 @@ def preprocess_frame(frame_server, bgr_frame: np.ndarray):
                     size = tuple(size)
                 resized_rgb = pil_crop_rgb.resize((size[1], size[0]) if len(size) == 2 else (size, size))
                 break
-    return gray, crop, resized_rgb, face_detected, num_faces, bbox_area, face_crop_size
+    return source_frame, crop, resized_rgb, face_detected, num_faces, bbox_area, face_crop_size
 
 
 def score_video(
@@ -106,7 +115,7 @@ def score_video(
         ok, frame = cap.read()
         if not ok or frame is None:
             continue
-        gray, crop, resized_rgb, face_detected, num_faces, bbox_area, face_crop_size = preprocess_frame(frame_server, frame)
+        source_frame, crop, resized_rgb, face_detected, num_faces, bbox_area, face_crop_size = preprocess_frame(frame_server, frame)
         fake_prob, smooth_prob = frame_server.run_deepfake_inference(user_id, crop)
         rows.append(
             {
@@ -124,8 +133,14 @@ def score_video(
         if sample_output_dir is not None and second in selected_seconds:
             sample_output_dir.mkdir(parents=True, exist_ok=True)
             prefix = f"{video_path.stem}__{model_key}__t{second:04d}"
-            Image.fromarray(gray, mode="L").save(sample_output_dir / f"{prefix}__raw_frame.png")
-            Image.fromarray(crop, mode="L").save(sample_output_dir / f"{prefix}__crop_gray.png")
+            if source_frame.ndim == 3:
+                Image.fromarray(source_frame, mode="RGB").save(sample_output_dir / f"{prefix}__raw_frame.png")
+            else:
+                Image.fromarray(source_frame, mode="L").save(sample_output_dir / f"{prefix}__raw_frame.png")
+            if crop.ndim == 3:
+                Image.fromarray(crop, mode="RGB").save(sample_output_dir / f"{prefix}__inference_crop.png")
+            else:
+                Image.fromarray(crop, mode="L").save(sample_output_dir / f"{prefix}__inference_crop.png")
             resized_rgb.save(sample_output_dir / f"{prefix}__model_input_rgb.png")
     cap.release()
     return rows

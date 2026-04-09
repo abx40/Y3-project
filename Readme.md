@@ -64,7 +64,7 @@ Web Client → Token Server → run_bot.py → Linux Bot → Frame Server → Da
 1. **Web Client (Vite)** - Joins Video SDK session using OBS Virtual Camera
 2. **Token Server** - Creates fresh JWT tokens to avoid expiration issues
 3. **run_bot.py** - Requests token, configures bot, starts Docker container
-4. **Linux Bot (C++)** - Joins session, subscribes to raw YUV pipes, sends Y-plane frames to Frame Server
+4. **Linux Bot (C++)** - Joins session, subscribes to raw video pipes, sends grayscale or RGB/BGR frames to Frame Server
 5. **Frame Server** - Receives frames, performs deepfake detection, computes metrics
 6. **Dashboard** - Displays real-time probability graphs and alerts
 
@@ -171,7 +171,7 @@ python3 ../run_bot.py --session test
 Modified Zoom SDK sample that:
 
 - Extracts raw I420 video frames
-- Sends Y-plane (grayscale) as HTTP POST to Frame Server
+- Sends raw frame payloads to the Frame Server
 - Includes metadata headers:
   - `X-Width`
   - `X-Height`
@@ -191,13 +191,14 @@ FastAPI server with deepfake detection:
 
 **Deepfake Detection:**
 - Uses ResNet18 baseline model
-- Converts Y-plane grayscale to RGB
+- Keeps grayscale inputs grayscale until RGB formatting is required by model transforms
+- Preserves colour inputs through crop selection and inference when RGB/BGR payloads are available
 - Applies rolling window smoothing
 - Logs predictions: `[DF] user=... fake_prob=0.708 smooth=0.731`
 
 **Frame Storage (optional):**
 - RAW format (binary Y-plane data)
-- PNG format (grayscale image)
+- PNG format (grayscale or colour, matching the decoded source frame)
 
 ### Dashboard (index.html)
 
