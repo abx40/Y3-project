@@ -1,0 +1,7 @@
+backend,run_id,kind,pipeline_effective_auc,offline_effective_auc,pipeline_mean_gap,offline_mean_gap,pipeline_valid_seconds,offline_valid_seconds
+xception_df40,validation_real_only_01__xception_df40,real_only,0.5,0.5,nan,nan,600,600
+xception_df40,validation_fake_only_01__xception_df40,fake_only,0.5,0.5,nan,nan,600,600
+xception_df40,validation_mixed_01__xception_df40,mixed,0.494961,0.461072,-0.033444,-0.045532,600,600
+f3net,validation_real_only_01__f3net,real_only,0.5,0.5,nan,nan,600,600
+f3net,validation_fake_only_01__f3net,fake_only,0.5,0.5,nan,nan,586,600
+f3net,validation_mixed_01__f3net,mixed,0.494339,0.793453,-0.005252,0.321207,600,600
