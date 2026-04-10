@@ -197,11 +197,24 @@ XCEPTION_STD = [0.5, 0.5, 0.5]
 def resolve_default_checkpoint(env_name: str, *candidates: str) -> str:
     env_value = os.getenv(env_name, "").strip()
     if env_value:
-        return env_value
+        env_path = Path(env_value)
+        if not env_path.is_absolute():
+            env_path = APP_DIR / env_path
+        return str(env_path.resolve())
     for candidate in candidates:
-        if candidate and os.path.isfile(candidate):
-            return candidate
-    return candidates[0] if candidates else ""
+        if not candidate:
+            continue
+        candidate_path = Path(candidate)
+        if not candidate_path.is_absolute():
+            candidate_path = APP_DIR / candidate_path
+        if candidate_path.is_file():
+            return str(candidate_path.resolve())
+    if not candidates:
+        return ""
+    fallback = Path(candidates[0])
+    if not fallback.is_absolute():
+        fallback = APP_DIR / fallback
+    return str(fallback.resolve())
 
 
 EFFORT_CKPT = resolve_default_checkpoint(

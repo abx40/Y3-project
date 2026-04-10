@@ -1,0 +1,8 @@
+{
+  "status": "success",
+  "runtime_s": 600,
+  "prediction_rows": 600,
+  "mode": "offline_direct_mp4",
+  "video_path": "C:\\deepfake_eval\\leakfree_eval\\sessions\\calibration\\calibration_mixed_04.mp4",
+  "model": "f3net"
+}

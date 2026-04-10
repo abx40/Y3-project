@@ -1,0 +1,12 @@
+{
+  "run_id": "validation_fake_only_01__xception_df40",
+  "split": "validation",
+  "kind": "fake_only",
+  "ordinal": 1,
+  "model": "xception_df40",
+  "duration_s": 600,
+  "video_filename": "validation_fake_only_01.mp4",
+  "labels_filename": "validation_fake_only_01_labels.csv",
+  "offline_mode": true,
+  "sample_every_s": 1
+}

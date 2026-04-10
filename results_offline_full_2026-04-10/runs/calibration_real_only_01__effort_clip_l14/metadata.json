@@ -1,0 +1,12 @@
+{
+  "run_id": "calibration_real_only_01__effort_clip_l14",
+  "split": "calibration",
+  "kind": "real_only",
+  "ordinal": 1,
+  "model": "effort_clip_l14",
+  "duration_s": 600,
+  "video_filename": "calibration_real_only_01.mp4",
+  "labels_filename": "calibration_real_only_01_labels.csv",
+  "offline_mode": true,
+  "sample_every_s": 1
+}

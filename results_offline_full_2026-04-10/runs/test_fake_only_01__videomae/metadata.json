@@ -1,0 +1,12 @@
+{
+  "run_id": "test_fake_only_01__videomae",
+  "split": "test",
+  "kind": "fake_only",
+  "ordinal": 1,
+  "model": "videomae",
+  "duration_s": 600,
+  "video_filename": "test_fake_only_01.mp4",
+  "labels_filename": "test_fake_only_01_labels.csv",
+  "offline_mode": true,
+  "sample_every_s": 1
+}
