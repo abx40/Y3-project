@@ -44,6 +44,7 @@ class RunData:
     result_dir: Path
     video_filename: str
     labels_path: Path
+    window_seconds: int
     signal_source: str
     signal_windows: List[Optional[float]]
     gt_windows: List[int]
@@ -77,6 +78,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sessions-index", default=r"C:\deepfake_eval\leakfree_eval\sessions_index.csv")
     parser.add_argument("--eval-root", default=r"C:\deepfake_eval\leakfree_eval")
     parser.add_argument("--output-dir", default="results_scored_v2")
+    parser.add_argument("--window-seconds", type=int, default=1)
     return parser.parse_args()
 
 
@@ -128,11 +130,12 @@ def parse_label_segments(labels_path: Path) -> List[LabelSegment]:
     return segments
 
 
-def build_gt_windows(segments: Sequence[LabelSegment], duration_s: int) -> List[int]:
+def build_gt_windows(segments: Sequence[LabelSegment], duration_s: int, window_seconds: int = 1) -> List[int]:
     gt: List[int] = []
     seg_idx = 0
-    for second in range(duration_s):
-        center = min(duration_s - 1e-6, second + 0.5)
+    for window_start in range(0, duration_s, window_seconds):
+        window_end = min(duration_s, window_start + window_seconds)
+        center = min(duration_s - 1e-6, window_start + ((window_end - window_start) / 2.0))
         while seg_idx + 1 < len(segments) and center >= segments[seg_idx].end_s:
             seg_idx += 1
         gt.append(segments[seg_idx].label)
@@ -152,8 +155,33 @@ def select_signal_source(rows: Sequence[dict]) -> str:
     return "score_raw" if has_raw else "score_smoothed"
 
 
+def aggregate_signal_windows(
+    signal_seconds: Sequence[Optional[float]],
+    actual_seconds: Sequence[Optional[float]],
+    duration_s: int,
+    window_seconds: int,
+) -> Tuple[List[Optional[float]], int, int, int]:
+    signal: List[Optional[float]] = []
+    scored_window_count = 0
+    held_window_count = 0
+    missing_window_count = 0
+    for window_start in range(0, duration_s, window_seconds):
+        window_end = min(duration_s, window_start + window_seconds)
+        window_values = [value for value in signal_seconds[window_start:window_end] if value is not None]
+        if window_values:
+            signal.append(statistics.fmean(window_values))
+            if any(value is not None for value in actual_seconds[window_start:window_end]):
+                scored_window_count += 1
+            else:
+                held_window_count += 1
+        else:
+            signal.append(None)
+            missing_window_count += 1
+    return signal, scored_window_count, held_window_count, missing_window_count
+
+
 def build_signal_windows(
-    rows: Sequence[dict], duration_s: int
+    rows: Sequence[dict], duration_s: int, window_seconds: int = 1
 ) -> Tuple[str, List[Optional[float]], float, float, float, int, int, int]:
     if not rows:
         raise ValueError("Prediction rows are empty")
@@ -197,25 +225,26 @@ def build_signal_windows(
     for second in range(duration_s):
         actual.append((sums[second] / counts[second]) if counts[second] else None)
 
-    signal: List[Optional[float]] = []
+    signal_seconds: List[Optional[float]] = []
     last_actual_value: Optional[float] = None
     last_actual_second: Optional[int] = None
-    held_window_count = 0
-    missing_window_count = 0
-    scored_window_count = 0
     for second, value in enumerate(actual):
         if value is not None:
-            signal.append(value)
+            signal_seconds.append(value)
             last_actual_value = value
             last_actual_second = second
-            scored_window_count += 1
             continue
         if last_actual_value is not None and last_actual_second is not None and second - last_actual_second <= 1:
-            signal.append(last_actual_value)
-            held_window_count += 1
+            signal_seconds.append(last_actual_value)
         else:
-            signal.append(None)
-            missing_window_count += 1
+            signal_seconds.append(None)
+
+    signal, scored_window_count, held_window_count, missing_window_count = aggregate_signal_windows(
+        signal_seconds,
+        actual,
+        duration_s,
+        window_seconds,
+    )
 
     return (
         signal_source,
@@ -229,7 +258,12 @@ def build_signal_windows(
     )
 
 
-def load_runs(summary_path: Path, session_index: Dict[Tuple[str, str, int], SessionMeta], eval_root: Path) -> List[RunData]:
+def load_runs(
+    summary_path: Path,
+    session_index: Dict[Tuple[str, str, int], SessionMeta],
+    eval_root: Path,
+    window_seconds: int = 1,
+) -> List[RunData]:
     rows = [row for row in read_csv_rows(summary_path) if row.get("status", "").strip() == "success"]
     if len(rows) != 96:
         raise ValueError(f"Expected 96 successful runs in {summary_path}, found {len(rows)}")
@@ -251,7 +285,7 @@ def load_runs(summary_path: Path, session_index: Dict[Tuple[str, str, int], Sess
             scored_window_count,
             held_window_count,
             missing_window_count,
-        ) = build_signal_windows(pred_rows, meta.duration_s)
+        ) = build_signal_windows(pred_rows, meta.duration_s, window_seconds=window_seconds)
         segments = parse_label_segments(labels_path)
         runs.append(
             RunData(
@@ -264,9 +298,10 @@ def load_runs(summary_path: Path, session_index: Dict[Tuple[str, str, int], Sess
                 result_dir=Path(row["result_dir"]),
                 video_filename=meta.video_filename,
                 labels_path=labels_path,
+                window_seconds=window_seconds,
                 signal_source=signal_source,
                 signal_windows=signal_windows,
-                gt_windows=build_gt_windows(segments, meta.duration_s),
+                gt_windows=build_gt_windows(segments, meta.duration_s, window_seconds=window_seconds),
                 fake_segments=build_fake_segments(segments),
                 pred_t_min=pred_t_min,
                 pred_t_max=pred_t_max,
@@ -396,17 +431,22 @@ def apply_operating_point(
     return alerts
 
 
-def extract_segments(binary_windows: Sequence[int]) -> List[Tuple[float, float]]:
+def extract_segments(
+    binary_windows: Sequence[int],
+    window_seconds: int = 1,
+    total_duration_s: Optional[int] = None,
+) -> List[Tuple[float, float]]:
     segments: List[Tuple[float, float]] = []
     start: Optional[int] = None
     for idx, value in enumerate(binary_windows):
         if value and start is None:
             start = idx
         elif not value and start is not None:
-            segments.append((float(start), float(idx)))
+            segments.append((float(start * window_seconds), float(idx * window_seconds)))
             start = None
     if start is not None:
-        segments.append((float(start), float(len(binary_windows))))
+        end_s = len(binary_windows) * window_seconds if total_duration_s is None else min(total_duration_s, len(binary_windows) * window_seconds)
+        segments.append((float(start * window_seconds), float(end_s)))
     return segments
 
 
@@ -449,14 +489,32 @@ def compute_run_metrics(run: RunData, alerts: Sequence[int]) -> dict:
     precision = tp / (tp + fp) if (tp + fp) else 0.0
     recall = tp / (tp + fn) if (tp + fn) else 0.0
     f1 = (2.0 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
-    predicted_segments = extract_segments(alerts)
+    predicted_segments = extract_segments(alerts, window_seconds=run.window_seconds, total_duration_s=run.duration_s)
     false_alert_windows = [1 if alert and not gt else 0 for alert, gt in zip(alerts, run.gt_windows)]
-    false_alert_segments = len(extract_segments(false_alert_windows))
-    real_minutes = sum(1 for gt in run.gt_windows if gt == 0) / 60.0
+    false_alert_segments = len(
+        extract_segments(false_alert_windows, window_seconds=run.window_seconds, total_duration_s=run.duration_s)
+    )
+    fp_real_seconds = 0.0
+    tn_real_seconds = 0.0
+    real_seconds = 0.0
+    alert_active_seconds = 0.0
+    for idx, (pred, gt) in enumerate(zip(alerts, run.gt_windows)):
+        window_start = idx * run.window_seconds
+        window_end = min(run.duration_s, window_start + run.window_seconds)
+        window_duration_s = max(0.0, float(window_end - window_start))
+        if gt == 0:
+            real_seconds += window_duration_s
+            if pred:
+                fp_real_seconds += window_duration_s
+            else:
+                tn_real_seconds += window_duration_s
+        if pred:
+            alert_active_seconds += window_duration_s
+    real_minutes = real_seconds / 60.0
     false_alerts_per_min = false_alert_segments / real_minutes if real_minutes > 0 else 0.0
-    false_alert_time_ratio = fp / (fp + tn) if (fp + tn) > 0 else 1.0
+    false_alert_time_ratio = fp_real_seconds / (fp_real_seconds + tn_real_seconds) if (fp_real_seconds + tn_real_seconds) > 0 else 1.0
     transitions = sum(1 for idx in range(1, len(alerts)) if alerts[idx] != alerts[idx - 1])
-    alert_active_minutes = sum(alerts) / 60.0
+    alert_active_minutes = alert_active_seconds / 60.0
     alert_flicker = transitions / alert_active_minutes if alert_active_minutes > 0 else 0.0
     detected_fake_segments = sum(
         1 for fake_segment in run.fake_segments if any(segments_overlap(fake_segment, pred_segment) for pred_segment in predicted_segments)
@@ -491,6 +549,8 @@ def compute_run_metrics(run: RunData, alerts: Sequence[int]) -> dict:
         "real_minutes": real_minutes,
         "alert_active_minutes": alert_active_minutes,
         "alert_transitions": transitions,
+        "fp_real_seconds": fp_real_seconds,
+        "tn_real_seconds": tn_real_seconds,
         "missing_windows": missing_windows,
         "scored_windows": run.scored_window_count,
         "held_windows": run.held_window_count,
@@ -515,6 +575,8 @@ def aggregate_metrics(run_metrics: Sequence[dict]) -> dict:
             "real_minutes",
             "alert_active_minutes",
             "alert_transitions",
+            "fp_real_seconds",
+            "tn_real_seconds",
             "missing_windows",
             "scored_windows",
             "held_windows",
@@ -528,7 +590,11 @@ def aggregate_metrics(run_metrics: Sequence[dict]) -> dict:
     recall = tp / (tp + fn) if (tp + fn) else 0.0
     f1 = (2.0 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
     false_alerts_per_min = totals["false_alert_segments"] / totals["real_minutes"] if totals["real_minutes"] > 0 else 0.0
-    false_alert_time_ratio = fp / (fp + totals["tn_windows"]) if (fp + totals["tn_windows"]) > 0 else 1.0
+    false_alert_time_ratio = (
+        totals["fp_real_seconds"] / (totals["fp_real_seconds"] + totals["tn_real_seconds"])
+        if (totals["fp_real_seconds"] + totals["tn_real_seconds"]) > 0
+        else 1.0
+    )
     ttfd = totals["delay_sum_s"] / totals["delay_count"] if totals["delay_count"] > 0 else 0.0
     flicker = totals["alert_transitions"] / totals["alert_active_minutes"] if totals["alert_active_minutes"] > 0 else 0.0
     total_windows = tp + fp + fn + totals["tn_windows"]
@@ -686,6 +752,7 @@ def build_summary_report(
     validation_rows: Sequence[dict],
     test_rows: Sequence[dict],
     baseline_rows: Sequence[dict],
+    window_seconds: int,
 ) -> str:
     winner = validation_rows[0]
     lines = [
@@ -693,9 +760,12 @@ def build_summary_report(
         "",
         "## Method",
         "",
-        "- Evaluation unit: 1-second window.",
-        "- Base signal: per-second mean of `predictions.csv:score_raw` after end-aligning each run to the video end. All runs had `score_raw`, so `score_smoothed` fallback was not needed.",
-        "- Missing predictions: hold the last observed score for at most 1 second, then mark the window as missing/no-decision.",
+        f"- Evaluation unit: {window_seconds}-second window.",
+        (
+            "- Base signal: aligned per-second mean of `predictions.csv:score_raw`, then aggregated into "
+            f"{window_seconds}-second windows. All runs had `score_raw`, so `score_smoothed` fallback was not needed."
+        ),
+        "- Missing predictions: hold the last observed score for at most 1 second before window aggregation, then mark the window as missing/no-decision.",
         "- Score polarity: determined per backend from calibration labels using AUROC. Invert only when `AUROC(high means fake) < 0.5`.",
         (
             f"- False-alert gates: strict <= {STRICT_FALSE_ALERTS_PER_MIN:.2f} FA/min and <= {STRICT_FA_TIME_RATIO:.2f} "
@@ -714,7 +784,7 @@ def build_summary_report(
         "",
         "## Selected Operating Points",
         "",
-        "| backend | selected policy | polarity | persistence_s | t_on | t_off | real-only FA/min | real-only FA time ratio | target recall | target TTFD s |",
+        "| backend | selected policy | polarity | persistence_windows | t_on | t_off | real-only FA/min | real-only FA time ratio | target recall | target TTFD s |",
         "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in selected_rows:
@@ -782,13 +852,15 @@ def main() -> None:
     eval_root = Path(args.eval_root).resolve()
     sessions_index_path = Path(args.sessions_index).resolve()
     output_dir = Path(args.output_dir).resolve()
+    if args.window_seconds <= 0:
+        raise ValueError("--window-seconds must be >= 1")
 
     if output_dir.exists():
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     session_index = load_session_index(sessions_index_path, eval_root)
-    runs = load_runs(summary_path, session_index, eval_root)
+    runs = load_runs(summary_path, session_index, eval_root, window_seconds=args.window_seconds)
     backend_runs: Dict[str, List[RunData]] = defaultdict(list)
     for run in runs:
         backend_runs[run.backend].append(run)
@@ -801,7 +873,8 @@ def main() -> None:
     alignment_rows: List[dict] = []
     thresholds: Dict[str, dict] = {
         "_meta": {
-            "evaluation_unit": "1s_window",
+            "evaluation_unit": f"{args.window_seconds}s_window",
+            "window_seconds": args.window_seconds,
             "base_signal_priority": ["score_raw", "score_smoothed_fallback_if_no_raw"],
             "missing_policy": "hold_last_score_for_1_second_then_missing_no_decision",
             "timeline_alignment": "end_aligned_to_video_end_using_pred_t_max_minus_duration",
@@ -1023,7 +1096,7 @@ def main() -> None:
     }
     for baseline_name, alert_value in {"always_real": 0, "always_fake": 1}.items():
         for split_name, split_runs in split_groups.items():
-            metrics = [compute_run_metrics(run, [alert_value] * run.duration_s) for run in split_runs]
+            metrics = [compute_run_metrics(run, [alert_value] * len(run.gt_windows)) for run in split_runs]
             baseline_rows.append(round_metrics({"backend": baseline_name, "split": split_name, **aggregate_metrics(metrics)}))
 
     calibration_fieldnames = [
@@ -1074,7 +1147,7 @@ def main() -> None:
     write_csv(output_dir / "alignment_audit.csv", alignment_rows, alignment_fieldnames)
     (output_dir / "thresholds.json").write_text(json.dumps(thresholds, indent=2), encoding="utf-8")
     (output_dir / "summary_report.md").write_text(
-        build_summary_report(selected_rows_sorted, ranked_validation, test_rows_sorted, baseline_rows),
+        build_summary_report(selected_rows_sorted, ranked_validation, test_rows_sorted, baseline_rows, args.window_seconds),
         encoding="utf-8",
     )
 
