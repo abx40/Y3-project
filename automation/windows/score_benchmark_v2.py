@@ -12,6 +12,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 STRICT_FALSE_ALERTS_PER_MIN = 0.10
 RELAXED_FALSE_ALERTS_PER_MIN = 0.25
+STRICT_FA_TIME_RATIO = 0.05
+RELAXED_FA_TIME_RATIO = 0.15
 
 
 @dataclass(frozen=True)
@@ -452,6 +454,7 @@ def compute_run_metrics(run: RunData, alerts: Sequence[int]) -> dict:
     false_alert_segments = len(extract_segments(false_alert_windows))
     real_minutes = sum(1 for gt in run.gt_windows if gt == 0) / 60.0
     false_alerts_per_min = false_alert_segments / real_minutes if real_minutes > 0 else 0.0
+    false_alert_time_ratio = fp / (fp + tn) if (fp + tn) > 0 else 1.0
     transitions = sum(1 for idx in range(1, len(alerts)) if alerts[idx] != alerts[idx - 1])
     alert_active_minutes = sum(alerts) / 60.0
     alert_flicker = transitions / alert_active_minutes if alert_active_minutes > 0 else 0.0
@@ -472,6 +475,7 @@ def compute_run_metrics(run: RunData, alerts: Sequence[int]) -> dict:
         "recall": recall,
         "f1": f1,
         "false_alerts_per_min": false_alerts_per_min,
+        "false_alert_time_ratio": false_alert_time_ratio,
         "time_to_first_detection_s": (delay_sum_s / delay_count) if delay_count else 0.0,
         "alert_flicker": alert_flicker,
         "tp_windows": tp,
@@ -524,6 +528,7 @@ def aggregate_metrics(run_metrics: Sequence[dict]) -> dict:
     recall = tp / (tp + fn) if (tp + fn) else 0.0
     f1 = (2.0 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
     false_alerts_per_min = totals["false_alert_segments"] / totals["real_minutes"] if totals["real_minutes"] > 0 else 0.0
+    false_alert_time_ratio = fp / (fp + totals["tn_windows"]) if (fp + totals["tn_windows"]) > 0 else 1.0
     ttfd = totals["delay_sum_s"] / totals["delay_count"] if totals["delay_count"] > 0 else 0.0
     flicker = totals["alert_transitions"] / totals["alert_active_minutes"] if totals["alert_active_minutes"] > 0 else 0.0
     total_windows = tp + fp + fn + totals["tn_windows"]
@@ -534,6 +539,7 @@ def aggregate_metrics(run_metrics: Sequence[dict]) -> dict:
         "recall": recall,
         "f1": f1,
         "false_alerts_per_min": false_alerts_per_min,
+        "false_alert_time_ratio": false_alert_time_ratio,
         "time_to_first_detection_s": ttfd,
         "alert_flicker": flicker,
         "tp_windows": int(tp),
@@ -562,6 +568,7 @@ def round_metrics(row: dict) -> dict:
         "recall",
         "f1",
         "false_alerts_per_min",
+        "false_alert_time_ratio",
         "time_to_first_detection_s",
         "alert_flicker",
         "real_minutes",
@@ -570,6 +577,7 @@ def round_metrics(row: dict) -> dict:
         "raw_auc_high_means_fake",
         "effective_auc",
         "real_only_false_alerts_per_min",
+        "real_only_false_alert_time_ratio",
         "target_recall",
         "target_ttfd_s",
     ):
@@ -608,6 +616,7 @@ def pick_best_candidate(candidates: Sequence[dict], gate_label: str) -> Optional
             item["target_metrics"]["time_to_first_detection_s"],
             -item["target_metrics"]["f1"],
             item["real_only_metrics"]["false_alerts_per_min"],
+            item["real_only_metrics"]["false_alert_time_ratio"],
             item["target_metrics"]["alert_flicker"],
             item["op"].threshold,
             item["op"].persistence_windows,
@@ -624,6 +633,7 @@ def pick_best_available(candidates: Sequence[dict]) -> dict:
         candidates,
         key=lambda item: (
             item["real_only_metrics"]["false_alerts_per_min"],
+            item["real_only_metrics"]["false_alert_time_ratio"],
             -item["target_metrics"]["recall"],
             item["target_metrics"]["time_to_first_detection_s"],
             -item["target_metrics"]["f1"],
@@ -687,7 +697,11 @@ def build_summary_report(
         "- Base signal: per-second mean of `predictions.csv:score_raw` after end-aligning each run to the video end. All runs had `score_raw`, so `score_smoothed` fallback was not needed.",
         "- Missing predictions: hold the last observed score for at most 1 second, then mark the window as missing/no-decision.",
         "- Score polarity: determined per backend from calibration labels using AUROC. Invert only when `AUROC(high means fake) < 0.5`.",
-        f"- False-alert gates: strict <= {STRICT_FALSE_ALERTS_PER_MIN:.2f} FA/min on `calibration_real_only_01`, relaxed <= {RELAXED_FALSE_ALERTS_PER_MIN:.2f} FA/min.",
+        (
+            f"- False-alert gates: strict <= {STRICT_FALSE_ALERTS_PER_MIN:.2f} FA/min and <= {STRICT_FA_TIME_RATIO:.2f} "
+            f"real-time alert ratio on `calibration_real_only_01`; relaxed <= {RELAXED_FALSE_ALERTS_PER_MIN:.2f} "
+            f"FA/min and <= {RELAXED_FA_TIME_RATIO:.2f} real-time alert ratio."
+        ),
         "- Calibration selection: among configs passing the gate, maximize recall on calibration fake+mixed, then minimize time-to-first-detection, then maximize F1.",
         "- Validation ranking: lowest false alerts/min, then lowest time-to-first-detection, then highest F1.",
         "",
@@ -700,13 +714,14 @@ def build_summary_report(
         "",
         "## Selected Operating Points",
         "",
-        "| backend | selected policy | polarity | persistence_s | t_on | t_off | real-only FA/min | target recall | target TTFD s |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| backend | selected policy | polarity | persistence_s | t_on | t_off | real-only FA/min | real-only FA time ratio | target recall | target TTFD s |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in selected_rows:
         lines.append(
             f"| `{row['backend']}` | `{row['selected_policy']}` | `{row['polarity']}` | {row['persistence_windows']} | "
             f"{row['t_on']:.2f} | {row['t_off']:.2f} | {row['real_only_false_alerts_per_min']:.4f} | "
+            f"{row['real_only_false_alert_time_ratio']:.4f} | "
             f"{row['target_recall']:.4f} | {row['target_ttfd_s']:.4f} |"
         )
 
@@ -715,14 +730,15 @@ def build_summary_report(
             "",
             "## Validation Ranking",
             "",
-            "| rank | backend | precision | recall | F1 | false alerts/min | TTFD s | flicker |",
-            "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| rank | backend | precision | recall | F1 | false alerts/min | false alert time ratio | TTFD s | flicker |",
+            "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for row in validation_rows:
         lines.append(
             f"| {row['rank']} | `{row['backend']}` | {row['precision']:.4f} | {row['recall']:.4f} | {row['f1']:.4f} | "
-            f"{row['false_alerts_per_min']:.4f} | {row['time_to_first_detection_s']:.4f} | {row['alert_flicker']:.4f} |"
+            f"{row['false_alerts_per_min']:.4f} | {row['false_alert_time_ratio']:.4f} | "
+            f"{row['time_to_first_detection_s']:.4f} | {row['alert_flicker']:.4f} |"
         )
 
     lines.extend(
@@ -730,14 +746,15 @@ def build_summary_report(
             "",
             "## Test Results",
             "",
-            "| backend | precision | recall | F1 | false alerts/min | TTFD s | flicker |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| backend | precision | recall | F1 | false alerts/min | false alert time ratio | TTFD s | flicker |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for row in test_rows:
         lines.append(
             f"| `{row['backend']}` | {row['precision']:.4f} | {row['recall']:.4f} | {row['f1']:.4f} | "
-            f"{row['false_alerts_per_min']:.4f} | {row['time_to_first_detection_s']:.4f} | {row['alert_flicker']:.4f} |"
+            f"{row['false_alerts_per_min']:.4f} | {row['false_alert_time_ratio']:.4f} | "
+            f"{row['time_to_first_detection_s']:.4f} | {row['alert_flicker']:.4f} |"
         )
 
     lines.extend(
@@ -745,15 +762,16 @@ def build_summary_report(
             "",
             "## Baselines",
             "",
-            "| baseline | split | precision | recall | F1 | false alerts/min | TTFD s |",
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+            "| baseline | split | precision | recall | F1 | false alerts/min | false alert time ratio | TTFD s |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for row in baseline_rows:
         lines.append(
             f"| `{row['backend']}` | `{row['split']}` | {row['precision']:.4f} | {row['recall']:.4f} | "
-            f"{row['f1']:.4f} | {row['false_alerts_per_min']:.4f} | {row['time_to_first_detection_s']:.4f} |"
-    )
+            f"{row['f1']:.4f} | {row['false_alerts_per_min']:.4f} | {row['false_alert_time_ratio']:.4f} | "
+            f"{row['time_to_first_detection_s']:.4f} |"
+        )
     lines.append("")
     return "\n".join(lines)
 
@@ -789,12 +807,14 @@ def main() -> None:
             "timeline_alignment": "end_aligned_to_video_end_using_pred_t_max_minus_duration",
             "strict_false_alerts_per_min": STRICT_FALSE_ALERTS_PER_MIN,
             "relaxed_false_alerts_per_min": RELAXED_FALSE_ALERTS_PER_MIN,
+            "strict_false_alert_time_ratio": STRICT_FA_TIME_RATIO,
+            "relaxed_false_alert_time_ratio": RELAXED_FA_TIME_RATIO,
             "search_space": {
                 "thresholds": [round(step / 100.0, 2) for step in range(1, 100)],
                 "hysteresis_gaps": [0.0, 0.05, 0.10],
                 "persistence_windows": [1, 2, 3],
             },
-            "selection_rule": "Gate on calibration_real_only_01 false_alerts_per_min, then choose best recall and lowest TTFD on calibration_fake_only_01 plus calibration mixed sessions.",
+            "selection_rule": "Gate on calibration_real_only_01 false_alerts_per_min and false_alert_time_ratio, then choose best recall and lowest TTFD on calibration_fake_only_01 plus calibration mixed sessions.",
             "validation_ranking_rule": "false_alerts_per_min asc, time_to_first_detection_s asc, F1 desc",
         }
     }
@@ -864,11 +884,21 @@ def main() -> None:
             )
 
         strict_best = pick_best_candidate(
-            [row for row in candidate_rows if row["real_only_metrics"]["false_alerts_per_min"] <= STRICT_FALSE_ALERTS_PER_MIN],
+            [
+                row
+                for row in candidate_rows
+                if row["real_only_metrics"]["false_alerts_per_min"] <= STRICT_FALSE_ALERTS_PER_MIN
+                and row["real_only_metrics"]["false_alert_time_ratio"] <= STRICT_FA_TIME_RATIO
+            ],
             "strict_0.10",
         )
         relaxed_best = pick_best_candidate(
-            [row for row in candidate_rows if row["real_only_metrics"]["false_alerts_per_min"] <= RELAXED_FALSE_ALERTS_PER_MIN],
+            [
+                row
+                for row in candidate_rows
+                if row["real_only_metrics"]["false_alerts_per_min"] <= RELAXED_FALSE_ALERTS_PER_MIN
+                and row["real_only_metrics"]["false_alert_time_ratio"] <= RELAXED_FA_TIME_RATIO
+            ],
             "relaxed_0.25",
         )
         selected = strict_best or relaxed_best or pick_best_available(candidate_rows)
@@ -893,6 +923,7 @@ def main() -> None:
                     "t_off": op.t_off,
                     "persistence_windows": op.persistence_windows,
                     "real_only_false_alerts_per_min": selected["real_only_metrics"]["false_alerts_per_min"],
+                    "real_only_false_alert_time_ratio": selected["real_only_metrics"]["false_alert_time_ratio"],
                     "target_recall": selected["target_metrics"]["recall"],
                     "target_ttfd_s": selected["target_metrics"]["time_to_first_detection_s"],
                     **selected["calibration_all_metrics"],
@@ -999,8 +1030,8 @@ def main() -> None:
         "backend", "signal_source", "polarity", "raw_auc_high_means_fake", "effective_auc",
         "selected_policy", "strict_gate_met", "relaxed_gate_met",
         "threshold", "t_on", "t_off", "persistence_windows",
-        "real_only_false_alerts_per_min", "target_recall", "target_ttfd_s",
-        "precision", "recall", "f1", "false_alerts_per_min", "time_to_first_detection_s", "alert_flicker",
+        "real_only_false_alerts_per_min", "real_only_false_alert_time_ratio", "target_recall", "target_ttfd_s",
+        "precision", "recall", "f1", "false_alerts_per_min", "false_alert_time_ratio", "time_to_first_detection_s", "alert_flicker",
         "tp_windows", "fp_windows", "fn_windows", "tn_windows",
         "predicted_alert_segments", "false_alert_segments", "fake_segments", "detected_fake_segments",
         "real_minutes", "alert_active_minutes", "alert_transitions",
@@ -1009,14 +1040,14 @@ def main() -> None:
     evaluation_fieldnames = [
         "rank", "winner", "backend", "signal_source", "polarity", "selected_policy",
         "strict_gate_met", "relaxed_gate_met", "persistence_windows", "t_on", "t_off",
-        "precision", "recall", "f1", "false_alerts_per_min", "time_to_first_detection_s", "alert_flicker",
+        "precision", "recall", "f1", "false_alerts_per_min", "false_alert_time_ratio", "time_to_first_detection_s", "alert_flicker",
         "tp_windows", "fp_windows", "fn_windows", "tn_windows",
         "predicted_alert_segments", "false_alert_segments", "fake_segments", "detected_fake_segments",
         "real_minutes", "alert_active_minutes", "alert_transitions",
         "missing_windows", "scored_windows", "held_windows", "missing_rate", "run_count",
     ]
     baseline_fieldnames = [
-        "backend", "split", "precision", "recall", "f1", "false_alerts_per_min", "time_to_first_detection_s",
+        "backend", "split", "precision", "recall", "f1", "false_alerts_per_min", "false_alert_time_ratio", "time_to_first_detection_s",
         "alert_flicker", "tp_windows", "fp_windows", "fn_windows", "tn_windows",
         "predicted_alert_segments", "false_alert_segments", "fake_segments", "detected_fake_segments",
         "real_minutes", "alert_active_minutes", "alert_transitions",
