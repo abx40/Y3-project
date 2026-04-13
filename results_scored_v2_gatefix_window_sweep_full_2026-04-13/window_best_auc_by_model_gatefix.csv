@@ -1,0 +1,7 @@
+backend,best_window_s_by_validation_auroc,polarity,validation_auroc,test_auroc
+efficientnet_b4,5,low,0.520379,0.552253
+effort_clip_l14,60,high,0.623397,0.4928
+f3net,60,high,0.676282,0.7968
+i3d,15,high,0.51547,0.471925
+videomae,60,high,0.665064,0.4128
+xception_df40,30,low,0.572464,0.463141
