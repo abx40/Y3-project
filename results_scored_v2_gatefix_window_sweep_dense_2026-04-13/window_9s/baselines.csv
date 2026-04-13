@@ -1,0 +1,5 @@
+backend,split,precision,recall,f1,false_alerts_per_min,false_alert_time_ratio,time_to_first_detection_s,alert_flicker,tp_windows,fp_windows,fn_windows,tn_windows,predicted_alert_segments,false_alert_segments,fake_segments,detected_fake_segments,real_minutes,alert_active_minutes,alert_transitions,missing_windows,scored_windows,held_windows,missing_rate,run_count
+always_real,validation,0.0,0.0,0.0,0.0,0.0,17.857143,0.0,0,0,1026,984,0,0,504,0,146.7,0.0,0,6,2004,0,0.002985,30
+always_real,test,0.0,0.0,0.0,0.0,0.0,18.292707,0.0,0,0,990,1020,0,0,492,0,151.8,0.0,0,0,2010,0,0.0,30
+always_fake,validation,0.510448,1.0,0.675889,1.96319,1.0,0.0,0.0,1026,984,0,0,30,288,504,504,146.7,300.0,0,6,2004,0,0.002985,30
+always_fake,test,0.492537,1.0,0.66,2.01581,1.0,0.0,0.0,990,1020,0,0,30,306,492,492,151.8,300.0,0,0,2010,0,0.0,30

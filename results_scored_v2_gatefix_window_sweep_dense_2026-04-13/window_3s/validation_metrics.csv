@@ -1,0 +1,7 @@
+rank,winner,backend,signal_source,polarity,selected_policy,strict_gate_met,relaxed_gate_met,persistence_windows,t_on,t_off,precision,recall,f1,false_alerts_per_min,false_alert_time_ratio,time_to_first_detection_s,alert_flicker,tp_windows,fp_windows,fn_windows,tn_windows,predicted_alert_segments,false_alert_segments,fake_segments,detected_fake_segments,real_minutes,alert_active_minutes,alert_transitions,missing_windows,scored_windows,held_windows,missing_rate,run_count
+1,True,i3d,score_raw,low,strict_0.10,True,True,1,0.45,0.35,0.6,0.017857,0.034682,0.080645,0.012097,17.252321,12.0,9,6,495,490,5,2,84,4,24.8,0.75,9,19,981,0,0.019,5
+2,False,xception_df40,score_raw,low,strict_0.10,True,True,3,0.92,0.92,0.434783,0.019841,0.037951,0.120968,0.02621,17.369512,6.956522,10,13,494,483,4,3,84,4,24.8,1.15,8,0,1000,0,0.0,5
+3,False,effort_clip_l14,score_raw,low,strict_0.10,True,True,3,0.84,0.7899999999999999,0.517241,0.059524,0.106762,0.16129,0.056452,16.467738,4.137931,30,28,474,468,6,4,84,6,24.8,2.9,12,0,1000,0,0.0,5
+4,False,videomae,score_raw,low,strict_0.10,True,True,2,0.92,0.8200000000000001,0.59322,0.138889,0.22508,0.483871,0.096774,14.011,6.440678,70,48,434,448,19,12,84,20,24.8,5.9,38,0,1000,0,0.0,5
+5,False,efficientnet_b4,score_raw,low,strict_0.10,True,True,2,0.88,0.78,0.625,0.119048,0.2,0.524194,0.072581,14.707214,6.458333,60,36,444,460,16,13,84,15,24.8,4.8,31,0,1000,0,0.0,5
+6,False,f3net,score_raw,high,strict_0.10,True,True,3,0.75,0.65,0.560748,0.238095,0.334262,0.927419,0.189516,11.731655,5.046729,120,94,384,402,27,23,84,35,24.8,10.7,54,4,996,0,0.004,5
