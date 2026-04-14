@@ -166,13 +166,13 @@ def build_summary_report(
     return "\n".join(lines)
 
 
-def run_variant(config: VariantConfig) -> Path:
-    args = parse_args(config)
-    summary_path = Path(args.summary).resolve()
-    eval_root = Path(args.eval_root).resolve()
-    sessions_index_path = Path(args.sessions_index).resolve()
-    output_dir = Path(args.output_dir).resolve()
-
+def run_variant_with_paths(
+    config: VariantConfig,
+    summary_path: Path,
+    sessions_index_path: Path,
+    eval_root: Path,
+    output_dir: Path,
+) -> Path:
     if output_dir.exists():
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -398,3 +398,14 @@ def run_variant(config: VariantConfig) -> Path:
         encoding="utf-8",
     )
     return output_dir
+
+
+def run_variant(config: VariantConfig) -> Path:
+    args = parse_args(config)
+    return run_variant_with_paths(
+        config=config,
+        summary_path=Path(args.summary).resolve(),
+        sessions_index_path=Path(args.sessions_index).resolve(),
+        eval_root=Path(args.eval_root).resolve(),
+        output_dir=Path(args.output_dir).resolve(),
+    )
