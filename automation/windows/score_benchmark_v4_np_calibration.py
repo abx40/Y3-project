@@ -35,6 +35,65 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def load_runs_any(
+    summary_path: Path,
+    session_index: Dict[Tuple[str, str, int], sb.SessionMeta],
+    eval_root: Path,
+    window_seconds: int,
+) -> List[sb.RunData]:
+    rows = [row for row in sb.read_csv_rows(summary_path) if row.get("status", "").strip() == "success"]
+    if not rows:
+        raise ValueError(f"No successful runs found in {summary_path}")
+
+    runs: List[sb.RunData] = []
+    for row in rows:
+        split = row["split"].strip()
+        kind = row["kind"].strip()
+        ordinal = int(row["ordinal"])
+        key = (split, kind, ordinal)
+        if key not in session_index:
+            raise KeyError(f"Missing session metadata for {key} in sessions index")
+        meta = session_index[key]
+        labels_path = eval_root / "sessions" / split / meta.labels_filename
+        pred_rows = sb.load_prediction_rows(Path(row["result_dir"]) / "predictions.csv")
+        (
+            signal_source,
+            signal_windows,
+            pred_t_min,
+            pred_t_max,
+            align_shift_s,
+            scored_window_count,
+            held_window_count,
+            missing_window_count,
+        ) = sb.build_signal_windows(pred_rows, meta.duration_s, window_seconds=window_seconds)
+        segments = sb.parse_label_segments(labels_path)
+        runs.append(
+            sb.RunData(
+                run_id=row["run_id"],
+                backend=row["model"].strip(),
+                split=split,
+                kind=kind,
+                ordinal=ordinal,
+                duration_s=meta.duration_s,
+                result_dir=Path(row["result_dir"]),
+                video_filename=meta.video_filename,
+                labels_path=labels_path,
+                window_seconds=window_seconds,
+                signal_source=signal_source,
+                signal_windows=signal_windows,
+                gt_windows=sb.build_gt_windows(segments, meta.duration_s, window_seconds=window_seconds),
+                fake_segments=sb.build_fake_segments(segments),
+                pred_t_min=pred_t_min,
+                pred_t_max=pred_t_max,
+                align_shift_s=align_shift_s,
+                scored_window_count=scored_window_count,
+                held_window_count=held_window_count,
+                missing_window_count=missing_window_count,
+            )
+        )
+    return runs
+
+
 def runs_with_real_labels(runs: Sequence[sb.RunData]) -> List[sb.RunData]:
     return [run for run in runs if any(label == 0 for label in run.gt_windows)]
 
@@ -286,7 +345,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     session_index = sb.load_session_index(sessions_index_path, eval_root)
-    runs = sb.load_runs(summary_path, session_index, eval_root, window_seconds=args.window_seconds)
+    runs = load_runs_any(summary_path, session_index, eval_root, window_seconds=args.window_seconds)
     backend_runs: Dict[str, List[sb.RunData]] = defaultdict(list)
     for run in runs:
         backend_runs[run.backend].append(run)
