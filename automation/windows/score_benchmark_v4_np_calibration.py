@@ -32,6 +32,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--window-seconds", type=int, default=DEFAULT_WINDOW_SECONDS)
     parser.add_argument("--bootstrap-samples", type=int, default=BOOTSTRAP_SAMPLES)
     parser.add_argument("--bootstrap-ucb-quantile", type=float, default=BOOTSTRAP_UCB_QUANTILE)
+    parser.add_argument("--relaxed-fa-per-min", type=float, default=None)
+    parser.add_argument("--relaxed-fa-time-ratio", type=float, default=None)
     return parser.parse_args()
 
 
@@ -220,6 +222,8 @@ def build_summary_report(
     window_seconds: int,
     bootstrap_samples: int,
     bootstrap_quantile: float,
+    relaxed_fa_per_min: Optional[float],
+    relaxed_fa_time_ratio: Optional[float],
 ) -> str:
     lines = [
         "# Benchmark Scoring Report V4 NP Calibration",
@@ -237,7 +241,7 @@ def build_summary_report(
             f"and <= {STRICT_FA_TIME_RATIO:.2f} false-alert time ratio."
         ),
         "- Calibration objective: among gate-passing candidates, maximize recall on calibration runs containing fake content, then minimize TTFD, then minimize flicker.",
-        "- Calibration does not optimize F1 and does not fall back to a 'best available' threshold when the gate fails.",
+        "- Calibration does not optimize F1.",
         "- Validation ranking: compliant backends only, ranked by threshold-free AUROC first, then lower FA/min, then lower TTFD, then higher recall.",
         "",
         "## Calibration Outcome",
@@ -245,19 +249,30 @@ def build_summary_report(
         f"- Gate-compliant backends: {len(selected_rows)} / {len(selected_rows) + len(failed_rows)}",
     ]
 
+    if relaxed_fa_per_min is not None and relaxed_fa_time_ratio is not None:
+        lines.insert(
+            11,
+            (
+                f"- Relaxed fallback: if no candidate passes the strict gate, allow <= {relaxed_fa_per_min:.2f} FA/min "
+                f"and <= {relaxed_fa_time_ratio:.2f} false-alert time ratio under the same bootstrap-UCB rule."
+            ),
+        )
+    else:
+        lines.insert(11, "- Calibration does not fall back to a 'best available' threshold when the gate fails.")
+
     if selected_rows:
         lines.extend(
             [
                 "",
                 "## Selected Operating Points",
                 "",
-                "| backend | polarity | t_on | t_off | persistence | gate FA/min | gate FA/min UCB | gate time ratio | gate time ratio UCB | target recall | target TTFD s | target flicker | val AUROC |",
-                "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+                "| backend | policy | polarity | t_on | t_off | persistence | gate FA/min | gate FA/min UCB | gate time ratio | gate time ratio UCB | target recall | target TTFD s | target flicker | val AUROC |",
+                "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for row in selected_rows:
             lines.append(
-                f"| `{row['backend']}` | `{row['polarity']}` | {row['t_on']:.2f} | {row['t_off']:.2f} | {row['persistence_windows']} | "
+                f"| `{row['backend']}` | `{row['selected_policy']}` | `{row['polarity']}` | {row['t_on']:.2f} | {row['t_off']:.2f} | {row['persistence_windows']} | "
                 f"{row['gate_false_alerts_per_min']:.4f} | {row['gate_false_alerts_per_min_ucb']:.4f} | "
                 f"{row['gate_false_alert_time_ratio']:.4f} | {row['gate_false_alert_time_ratio_ucb']:.4f} | "
                 f"{row['target_recall']:.4f} | {row['target_ttfd_s']:.4f} | {row['target_alert_flicker']:.4f} | {row['validation_auroc']:.4f} |"
@@ -285,14 +300,14 @@ def build_summary_report(
                 "",
                 "## Validation",
                 "",
-                "| rank | backend | status | AUROC | recall | F1 | FA/min | FA time ratio | TTFD s | flicker |",
-                "| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+                "| rank | backend | status | policy | AUROC | recall | F1 | FA/min | FA time ratio | TTFD s | flicker |",
+                "| ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for row in validation_rows:
             rank = row.get("rank", "")
             lines.append(
-                f"| {rank} | `{row['backend']}` | `{row['calibration_status']}` | {row['threshold_free_auroc']:.4f} | "
+                f"| {rank} | `{row['backend']}` | `{row['calibration_status']}` | `{row.get('selected_policy', '')}` | {row['threshold_free_auroc']:.4f} | "
                 f"{row.get('recall', 0.0) if row.get('recall', '') != '' else ''} | "
                 f"{row.get('f1', 0.0) if row.get('f1', '') != '' else ''} | "
                 f"{row.get('false_alerts_per_min', 0.0) if row.get('false_alerts_per_min', '') != '' else ''} | "
@@ -307,13 +322,13 @@ def build_summary_report(
                 "",
                 "## Test",
                 "",
-                "| backend | status | AUROC | recall | F1 | FA/min | FA time ratio | TTFD s | flicker |",
-                "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+                "| backend | status | policy | AUROC | recall | F1 | FA/min | FA time ratio | TTFD s | flicker |",
+                "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for row in test_rows:
             lines.append(
-                f"| `{row['backend']}` | `{row['calibration_status']}` | {row['threshold_free_auroc']:.4f} | "
+                f"| `{row['backend']}` | `{row['calibration_status']}` | `{row.get('selected_policy', '')}` | {row['threshold_free_auroc']:.4f} | "
                 f"{row.get('recall', 0.0) if row.get('recall', '') != '' else ''} | "
                 f"{row.get('f1', 0.0) if row.get('f1', '') != '' else ''} | "
                 f"{row.get('false_alerts_per_min', 0.0) if row.get('false_alerts_per_min', '') != '' else ''} | "
@@ -334,6 +349,12 @@ def main() -> None:
         raise ValueError("--bootstrap-samples must be >= 1")
     if not (0.5 < args.bootstrap_ucb_quantile < 1.0):
         raise ValueError("--bootstrap-ucb-quantile must be between 0.5 and 1.0")
+    if (args.relaxed_fa_per_min is None) != (args.relaxed_fa_time_ratio is None):
+        raise ValueError("--relaxed-fa-per-min and --relaxed-fa-time-ratio must be provided together")
+    if args.relaxed_fa_per_min is not None and args.relaxed_fa_per_min < STRICT_FALSE_ALERTS_PER_MIN:
+        raise ValueError("--relaxed-fa-per-min must be >= strict FA/min")
+    if args.relaxed_fa_time_ratio is not None and args.relaxed_fa_time_ratio < STRICT_FA_TIME_RATIO:
+        raise ValueError("--relaxed-fa-time-ratio must be >= strict FA time ratio")
 
     summary_path = Path(args.summary).resolve()
     eval_root = Path(args.eval_root).resolve()
@@ -369,7 +390,9 @@ def main() -> None:
                 "hysteresis_gaps": [0.0, 0.05, 0.10],
                 "persistence_windows": [1, 2, 3],
             },
-            "no_fallback_when_gate_fails": True,
+            "no_fallback_when_gate_fails": args.relaxed_fa_per_min is None,
+            "relaxed_false_alerts_per_min": args.relaxed_fa_per_min,
+            "relaxed_false_alert_time_ratio": args.relaxed_fa_time_ratio,
         }
     }
 
@@ -458,7 +481,23 @@ def main() -> None:
             if row["gate_bootstrap"]["false_alerts_per_min_ucb"] <= STRICT_FALSE_ALERTS_PER_MIN
             and row["gate_bootstrap"]["false_alert_time_ratio_ucb"] <= STRICT_FA_TIME_RATIO
         ]
-        selected = sorted(feasible_candidates, key=rank_candidate)[0] if feasible_candidates else None
+        relaxed_candidates = []
+        if args.relaxed_fa_per_min is not None and args.relaxed_fa_time_ratio is not None:
+            relaxed_candidates = [
+                row
+                for row in candidate_rows
+                if row["gate_bootstrap"]["false_alerts_per_min_ucb"] <= args.relaxed_fa_per_min
+                and row["gate_bootstrap"]["false_alert_time_ratio_ucb"] <= args.relaxed_fa_time_ratio
+            ]
+        if feasible_candidates:
+            selected = sorted(feasible_candidates, key=rank_candidate)[0]
+            selected_policy = "strict_bootstrap_ucb_gate"
+        elif relaxed_candidates:
+            selected = sorted(relaxed_candidates, key=rank_candidate)[0]
+            selected_policy = "relaxed_bootstrap_ucb_gate"
+        else:
+            selected = None
+            selected_policy = ""
         failed = best_failed_candidate(candidate_rows) if selected is None else None
         selected_op = selected["op"] if selected is not None else None
         calibration_status = "selected" if selected is not None else "failed_gate"
@@ -474,6 +513,7 @@ def main() -> None:
             "validation_auroc": validation_auc,
             "test_auroc": test_auc,
             "calibration_status": calibration_status,
+            "selected_policy": selected_policy,
             "gate_real_session_count": selected_like["gate_bootstrap"]["session_count"] if selected_like else 0,
             "gate_false_alerts_per_min": selected_like["gate_bootstrap"]["false_alerts_per_min_point"] if selected_like else "",
             "gate_false_alerts_per_min_ucb": selected_like["gate_bootstrap"]["false_alerts_per_min_ucb"] if selected_like else "",
@@ -500,7 +540,7 @@ def main() -> None:
                         "polarity": polarity,
                         "calibration_status": calibration_status,
                         "threshold_free_auroc": validation_auc,
-                        "selected_policy": "bootstrap_ucb_gate",
+                        "selected_policy": selected_policy,
                         "threshold": selected_op.threshold,
                         "t_on": selected_op.t_on,
                         "t_off": selected_op.t_off,
@@ -517,7 +557,7 @@ def main() -> None:
                         "polarity": polarity,
                         "calibration_status": calibration_status,
                         "threshold_free_auroc": test_auc,
-                        "selected_policy": "bootstrap_ucb_gate",
+                        "selected_policy": selected_policy,
                         "threshold": selected_op.threshold,
                         "t_on": selected_op.t_on,
                         "t_off": selected_op.t_off,
@@ -561,10 +601,11 @@ def main() -> None:
             "validation_auroc": round(validation_auc, 6),
             "test_auroc": round(test_auc, 6),
             "calibration_status": calibration_status,
+            "selected_policy": selected_policy,
             "selected": None
             if selected is None
             else {
-                "policy": "bootstrap_ucb_gate",
+                "policy": selected_policy,
                 "threshold": selected_op.threshold,
                 "t_on": selected_op.t_on,
                 "t_off": selected_op.t_off,
@@ -621,7 +662,7 @@ def main() -> None:
 
     calibration_fieldnames = [
         "backend", "signal_source", "polarity", "raw_auc_high_means_fake", "effective_auc",
-        "calibration_auroc", "validation_auroc", "test_auroc", "calibration_status",
+        "calibration_auroc", "validation_auroc", "test_auroc", "calibration_status", "selected_policy",
         "gate_real_session_count", "gate_false_alerts_per_min", "gate_false_alerts_per_min_ucb",
         "gate_false_alert_time_ratio", "gate_false_alert_time_ratio_ucb",
         "target_recall", "target_ttfd_s", "target_alert_flicker",
@@ -668,6 +709,8 @@ def main() -> None:
             window_seconds=args.window_seconds,
             bootstrap_samples=args.bootstrap_samples,
             bootstrap_quantile=args.bootstrap_ucb_quantile,
+            relaxed_fa_per_min=args.relaxed_fa_per_min,
+            relaxed_fa_time_ratio=args.relaxed_fa_time_ratio,
         ),
         encoding="utf-8",
     )
