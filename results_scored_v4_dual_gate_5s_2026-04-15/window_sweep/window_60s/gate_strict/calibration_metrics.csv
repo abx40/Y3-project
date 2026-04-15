@@ -1,0 +1,7 @@
+backend,signal_source,polarity,raw_auc_high_means_fake,effective_auc,calibration_auroc,validation_auroc,test_auroc,calibration_status,selected_policy,gate_real_session_count,gate_false_alerts_per_min,gate_false_alerts_per_min_ucb,gate_false_alert_time_ratio,gate_false_alert_time_ratio_ucb,target_recall,target_ttfd_s,target_f1,target_alert_flicker,threshold,t_on,t_off,persistence_windows
+efficientnet_b4,score_raw,low,0.498884,0.501116,0.501116,0.512821,0.4432,selected,strict,1,0.0,0.0,0.0,0.0,0.571429,6.774519,0.542373,0.129032,0.66,0.66,0.56,2
+effort_clip_l14,score_raw,high,0.52567,0.52567,0.52567,0.623397,0.4928,selected,strict,1,0.0,0.0,0.0,0.0,0.357143,11.10225,0.4,0.227273,0.9,0.9,0.8,2
+f3net,score_raw,high,0.579241,0.579241,0.579241,0.676282,0.7968,selected,strict,1,0.0,0.0,0.0,0.0,0.5,7.502288,0.528302,0.76,0.58,0.58,0.48,1
+i3d,score_raw,low,0.376116,0.623884,0.623884,0.49359,0.5616,selected,strict,1,0.0,0.0,0.0,0.0,0.642857,7.350413,0.666667,0.153846,0.31,0.31,0.26,2
+videomae,score_raw,high,0.516741,0.516741,0.516741,0.665064,0.4128,selected,strict,1,0.0,0.0,0.0,0.0,0.321429,10.542423,0.352941,0.217391,0.47,0.47,0.37,2
+xception_df40,score_raw,low,0.456473,0.543527,0.543527,0.394231,0.5344,selected,strict,1,0.0,0.0,0.0,0.0,0.714286,5.316298,0.634921,0.142857,0.17,0.17,0.17,3
