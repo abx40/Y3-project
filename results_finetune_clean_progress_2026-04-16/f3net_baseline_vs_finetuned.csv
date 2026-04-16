@@ -1,0 +1,13 @@
+backend,window_s,metric,baseline_value,finetuned_value,delta
+f3net,5,validation_auroc,0.525839,0.557869,0.032030
+f3net,5,validation_f1,0.194690,0.394737,0.200047
+f3net,5,validation_fa_per_min,0.161074,0.120805,-0.040269
+f3net,5,test_auroc,0.541851,0.645590,0.103739
+f3net,5,test_f1,0.231214,0.263305,0.032091
+f3net,5,test_fa_per_min,0.040678,0.081356,0.040678
+f3net,15,validation_auroc,0.558223,0.598500,0.040277
+f3net,15,validation_f1,0.450000,0.194690,-0.255310
+f3net,15,validation_fa_per_min,0.408163,0.000000,-0.408163
+f3net,15,test_auroc,0.554899,0.696827,0.141928
+f3net,15,test_f1,0.512821,0.091743,-0.421078
+f3net,15,test_fa_per_min,0.371134,0.041237,-0.329897

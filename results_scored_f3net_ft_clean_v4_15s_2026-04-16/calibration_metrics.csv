@@ -1,0 +1,2 @@
+backend,signal_source,polarity,raw_auc_high_means_fake,effective_auc,calibration_auroc,validation_auroc,test_auroc,calibration_status,selected_policy,gate_real_session_count,gate_false_alerts_per_min,gate_false_alerts_per_min_ucb,gate_false_alert_time_ratio,gate_false_alert_time_ratio_ucb,target_recall,target_ttfd_s,target_alert_flicker,threshold,t_on,t_off,persistence_windows
+f3net,score_raw,high,0.591207,0.591207,0.591207,0.598539,0.696827,selected,strict_bootstrap_ucb_gate,7,0.039435,0.089989,0.009859,0.022497,0.044586,13.012789,3.555556,0.92,0.92,0.92,2

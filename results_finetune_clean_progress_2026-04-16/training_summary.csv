@@ -1,0 +1,7 @@
+backend,status,train_policy,best_epoch,best_val_acc,epochs,batch_size,train_samples_per_clip_or_clip_samples,checkpoint_path,notes
+f3net,completed_full_finetune,full_model,2,0.8021978022,2,8,2,C:\deepfake_eval\f3net_clean_experiment_2026-04-15_v4\artifacts\finetune_run_01\f3net_finetuned_best.pth,Full end-to-end live evaluation completed
+xception_df40,completed_training_only,full_model,2,0.8320251177,2,8,2,C:\deepfake_eval\f3net_clean_experiment_2026-04-15_v4\artifacts\xception_finetune_run_01\xception_df40_finetuned_best.pth,Needs clean live replay batch
+efficientnet_b4,completed_training_only,full_model,2,0.7394034537,2,8,2,C:\deepfake_eval\f3net_clean_experiment_2026-04-15_v4\artifacts\efficientnet_finetune_run_01\efficientnet_b4_finetuned_best.pth,Needs clean live replay batch
+effort_clip_l14,completed_training_only,full_model,1,0.8006279435,2,1,2,C:\deepfake_eval\f3net_clean_experiment_2026-04-15_v4\artifacts\effort_finetune_run_01\effort_clip_l14_finetuned_best.pth,Training feasible but learning dynamics were poor
+i3d,partial_training_checkpoint,full_model,1,,2,1,1,C:\deepfake_eval\f3net_clean_experiment_2026-04-15_v4\artifacts\i3d_finetune_run_01\i3d_finetuned_best.pth,Checkpoint saved from epoch 1 but run timed out before metrics flush
+videomae,not_started,,0,,0,0,0,,Temporal local-HF fine-tune path scaffolded but not completed on this branch
