@@ -1,0 +1,3 @@
+backend,scope,signal_source,polarity,auc_high_means_fake,effective_auc,real_count,fake_count,real_mean,real_std,real_p05,real_p25,real_p50,real_p75,real_p95,fake_mean,fake_std,fake_p05,fake_p25,fake_p50,fake_p75,fake_p95,mean_gap_fake_minus_real
+i3d,calibration,score_raw,low,0.499083,0.500917,205,157,0.687562,0.02698,0.63832,0.669496,0.689855,0.709911,0.725889,0.688038,0.026405,0.642919,0.670531,0.686641,0.711623,0.727908,0.000476
+i3d,all,score_raw,low,0.516105,0.483895,400,362,0.686489,0.028915,0.636391,0.666801,0.689565,0.710222,0.727681,0.688702,0.026971,0.643537,0.67043,0.68867,0.712274,0.729097,0.002213

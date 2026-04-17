@@ -1,0 +1,7 @@
+backend,split,source_dir,calibration_status,selected_policy,polarity,threshold_free_auroc,threshold,t_on,t_off,persistence_windows,precision,recall,f1,false_alerts_per_min,false_alert_time_ratio,time_to_first_detection_s,alert_flicker,real_minutes,run_count
+f3net,calibration,C:\Users\weissach\Desktop\Y3\Y3-project\results_scored_f3net_ft_clean_v4_15s_2026-04-16,selected,strict_bootstrap_ucb_gate,high,,0.92,0.92,0.92,2,,,,,,,,,
+xception_df40,calibration,C:\Users\weissach\Desktop\Y3\Y3-project\results_scored_ft_clean_xception_efficientnet_v4_15s_2026-04-16,selected,strict_bootstrap_ucb_gate,high,,0.95,0.95,0.85,3,,,,,,,,,
+efficientnet_b4,calibration,C:\Users\weissach\Desktop\Y3\Y3-project\results_scored_ft_clean_xception_efficientnet_v4_15s_2026-04-16,selected,strict_bootstrap_ucb_gate,high,,0.83,0.83,0.78,2,,,,,,,,,
+effort_clip_l14,calibration,C:\Users\weissach\Desktop\Y3\Y3-project\results_scored_ft_clean_effort_v4_15s_2026-04-17,selected,strict_bootstrap_ucb_gate,high,,0.51,0.51,0.51,1,,,,,,,,,
+i3d,calibration,C:\Users\weissach\Desktop\Y3\Y3-project\results_scored_ft_clean_i3d_v4_15s_2026-04-17,selected,strict_bootstrap_ucb_gate,low,,0.34,0.34,0.34,3,,,,,,,,,
+videomae,calibration,C:\Users\weissach\Desktop\Y3\Y3-project\results_scored_ft_clean_videomae_v4_15s_2026-04-17,selected,strict_bootstrap_ucb_gate,low,,0.52,0.52,0.52,1,,,,,,,,,

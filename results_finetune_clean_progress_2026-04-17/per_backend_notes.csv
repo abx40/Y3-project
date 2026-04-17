@@ -1,0 +1,7 @@
+backend,note
+f3net,
+xception_df40,Baseline failed calibration gate; fine-tuned model became selectable.
+efficientnet_b4,
+effort_clip_l14,"Baseline failed calibration gate; fine-tuned model became selectable. AUROC improved, but selected operating point stayed near-inert."
+i3d,Fine-tuned checkpoint came from a long run that timed out before metrics.json flush.
+videomae,Fine-tuned local HF checkpoint completed live replay but collapsed to random/inert behavior at 15s.
