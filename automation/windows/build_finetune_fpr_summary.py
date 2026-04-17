@@ -1,5 +1,6 @@
 import argparse
 import csv
+import re
 import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -9,6 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_NEW_BUNDLE = REPO_ROOT / "results_finetune_clean_fpr_calibration_15s_2026-04-17"
 DEFAULT_OLD_FINE_TUNED = REPO_ROOT / "results_finetune_clean_progress_2026-04-17"
 DEFAULT_BASELINE = REPO_ROOT / "results_scored_v4_np_calibration_15s_rebuilt_calibration_v2_2026-04-15"
+DEFAULT_TRAINING_SUMMARY = REPO_ROOT / "results_finetune_clean_progress_2026-04-17" / "training_summary.csv"
 
 
 def parse_args() -> argparse.Namespace:
@@ -16,6 +18,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--new-bundle", default=str(DEFAULT_NEW_BUNDLE))
     parser.add_argument("--old-fine-tuned", default=str(DEFAULT_OLD_FINE_TUNED))
     parser.add_argument("--baseline-dir", default=str(DEFAULT_BASELINE))
+    parser.add_argument("--skip-baseline", action="store_true")
+    parser.add_argument("--training-summary-source", default=str(DEFAULT_TRAINING_SUMMARY))
     return parser.parse_args()
 
 
@@ -31,6 +35,13 @@ def write_csv(path: Path, rows: List[Dict[str, object]], fieldnames: List[str]) 
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
+
+
+def infer_window_label(path: Path) -> str:
+    match = re.search(r"_(\d+)s_", path.name)
+    if match:
+        return f"{match.group(1)}s"
+    return "current-window"
 
 
 def maybe_float(value: object) -> Optional[float]:
@@ -91,7 +102,9 @@ def main() -> None:
     args = parse_args()
     new_bundle = Path(args.new_bundle).resolve()
     old_fine_tuned = Path(args.old_fine_tuned).resolve()
-    baseline_dir = Path(args.baseline_dir).resolve()
+    baseline_dir = Path(args.baseline_dir).resolve() if args.baseline_dir else None
+    training_summary_source = Path(args.training_summary_source).resolve() if args.training_summary_source else None
+    window_label = infer_window_label(new_bundle)
 
     new_calib = read_csv_rows(new_bundle / "calibration_metrics.csv")
     new_val = read_csv_rows(new_bundle / "validation_metrics.csv")
@@ -101,8 +114,11 @@ def main() -> None:
     old_val = read_csv_rows(old_fine_tuned / "validation_metrics.csv")
     old_test = read_csv_rows(old_fine_tuned / "test_metrics.csv")
 
-    baseline_val = read_csv_rows(baseline_dir / "validation_metrics.csv")
-    baseline_test = read_csv_rows(baseline_dir / "test_metrics.csv")
+    baseline_val: List[Dict[str, str]] = []
+    baseline_test: List[Dict[str, str]] = []
+    if not args.skip_baseline and baseline_dir is not None:
+        baseline_val = read_csv_rows(baseline_dir / "validation_metrics.csv")
+        baseline_test = read_csv_rows(baseline_dir / "test_metrics.csv")
 
     backends = sorted(row["backend"] for row in new_calib)
 
@@ -116,39 +132,39 @@ def main() -> None:
         old_c = find_by_backend(old_calib, backend)
         old_v = find_by_backend(old_val, backend)
         old_t = find_by_backend(old_test, backend)
-        base_v = find_by_backend(baseline_val, backend)
-        base_t = find_by_backend(baseline_test, backend)
-
-        baseline_vs_finetuned_rows.append(
-            {
-                "backend": backend,
-                "baseline_calibration_status": base_v.get("calibration_status", ""),
-                "fpr_calibration_status": new_v.get("calibration_status", ""),
-                "baseline_val_auroc": maybe_float(base_v.get("threshold_free_auroc")),
-                "fpr_val_auroc": maybe_float(new_v.get("threshold_free_auroc")),
-                "delta_val_auroc": (
-                    maybe_float(new_v.get("threshold_free_auroc")) - maybe_float(base_v.get("threshold_free_auroc"))
-                    if maybe_float(new_v.get("threshold_free_auroc")) is not None and maybe_float(base_v.get("threshold_free_auroc")) is not None
-                    else None
-                ),
-                "baseline_val_f1": maybe_float(base_v.get("f1")),
-                "fpr_val_f1": maybe_float(new_v.get("f1")),
-                "baseline_test_auroc": maybe_float(base_t.get("threshold_free_auroc")),
-                "fpr_test_auroc": maybe_float(new_t.get("threshold_free_auroc")),
-                "delta_test_auroc": (
-                    maybe_float(new_t.get("threshold_free_auroc")) - maybe_float(base_t.get("threshold_free_auroc"))
-                    if maybe_float(new_t.get("threshold_free_auroc")) is not None and maybe_float(base_t.get("threshold_free_auroc")) is not None
-                    else None
-                ),
-                "baseline_test_f1": maybe_float(base_t.get("f1")),
-                "fpr_test_f1": maybe_float(new_t.get("f1")),
-                "delta_test_f1": (
-                    maybe_float(new_t.get("f1")) - maybe_float(base_t.get("f1"))
-                    if maybe_float(new_t.get("f1")) is not None and maybe_float(base_t.get("f1")) is not None
-                    else None
-                ),
-            }
-        )
+        if baseline_val and baseline_test:
+            base_v = find_by_backend(baseline_val, backend)
+            base_t = find_by_backend(baseline_test, backend)
+            baseline_vs_finetuned_rows.append(
+                {
+                    "backend": backend,
+                    "baseline_calibration_status": base_v.get("calibration_status", ""),
+                    "fpr_calibration_status": new_v.get("calibration_status", ""),
+                    "baseline_val_auroc": maybe_float(base_v.get("threshold_free_auroc")),
+                    "fpr_val_auroc": maybe_float(new_v.get("threshold_free_auroc")),
+                    "delta_val_auroc": (
+                        maybe_float(new_v.get("threshold_free_auroc")) - maybe_float(base_v.get("threshold_free_auroc"))
+                        if maybe_float(new_v.get("threshold_free_auroc")) is not None and maybe_float(base_v.get("threshold_free_auroc")) is not None
+                        else None
+                    ),
+                    "baseline_val_f1": maybe_float(base_v.get("f1")),
+                    "fpr_val_f1": maybe_float(new_v.get("f1")),
+                    "baseline_test_auroc": maybe_float(base_t.get("threshold_free_auroc")),
+                    "fpr_test_auroc": maybe_float(new_t.get("threshold_free_auroc")),
+                    "delta_test_auroc": (
+                        maybe_float(new_t.get("threshold_free_auroc")) - maybe_float(base_t.get("threshold_free_auroc"))
+                        if maybe_float(new_t.get("threshold_free_auroc")) is not None and maybe_float(base_t.get("threshold_free_auroc")) is not None
+                        else None
+                    ),
+                    "baseline_test_f1": maybe_float(base_t.get("f1")),
+                    "fpr_test_f1": maybe_float(new_t.get("f1")),
+                    "delta_test_f1": (
+                        maybe_float(new_t.get("f1")) - maybe_float(base_t.get("f1"))
+                        if maybe_float(new_t.get("f1")) is not None and maybe_float(base_t.get("f1")) is not None
+                        else None
+                    ),
+                }
+            )
 
         fpr_vs_old_rows.append(
             {
@@ -221,21 +237,25 @@ def main() -> None:
             }
         )
 
-    write_csv(
-        new_bundle / "baseline_vs_finetuned.csv",
-        baseline_vs_finetuned_rows,
-        list(baseline_vs_finetuned_rows[0].keys()),
-    )
+    if baseline_vs_finetuned_rows:
+        write_csv(
+            new_bundle / "baseline_vs_finetuned.csv",
+            baseline_vs_finetuned_rows,
+            list(baseline_vs_finetuned_rows[0].keys()),
+        )
     write_csv(
         new_bundle / "fpr_vs_old_gate_comparison.csv",
         fpr_vs_old_rows,
         list(fpr_vs_old_rows[0].keys()),
     )
 
-    try:
-        shutil.copyfile(old_fine_tuned / "training_summary.csv", new_bundle / "training_summary.csv")
-    except FileNotFoundError:
-        pass
+    for candidate in [old_fine_tuned / "training_summary.csv", training_summary_source]:
+        try:
+            if candidate is not None and candidate.exists():
+                shutil.copyfile(candidate, new_bundle / "training_summary.csv")
+                break
+        except FileNotFoundError:
+            continue
 
     new_rank = [
         row["backend"]
@@ -280,7 +300,7 @@ def main() -> None:
         "",
         "## Method",
         "",
-        "- Calibration is FPR-based at a fixed 15-second window.",
+        f"- Calibration is FPR-based at a fixed {window_label} window.",
         "- Candidate selection maximizes recall on fake-labelled calibration windows subject to real-window FPR on pooled real-labelled calibration windows.",
         "- Strict FPR target: 0.05. Relaxed fallback FPR target: 0.10.",
         "- FA/min is reported as an operational metric, not the main selection rule.",
@@ -333,7 +353,7 @@ def main() -> None:
     summary_lines.extend(
         [
             "",
-            "## Comparison vs Previous Fine-Tuned 15s Bundle",
+            f"## Comparison vs Previous Fine-Tuned {window_label} Bundle",
             "",
             f"- Operating point changed for: {', '.join(changed_ops) if changed_ops else 'none'}.",
             f"- Status/policy changed for: {', '.join(changed_status) if changed_status else 'none'}.",
@@ -350,7 +370,7 @@ def main() -> None:
         for row in fpr_vs_old_rows
     )
     summary_lines.append(
-        f"- Conservative 15s operating points {'were partially relaxed' if conservative_fix else 'were not meaningfully fixed'} under the FPR-based rule."
+        f"- Conservative {window_label} operating points {'were partially relaxed' if conservative_fix else 'were not meaningfully fixed'} under the FPR-based rule."
     )
 
     (new_bundle / "experiment_summary.md").write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
