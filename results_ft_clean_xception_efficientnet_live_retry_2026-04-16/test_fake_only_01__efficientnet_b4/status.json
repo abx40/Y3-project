@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "run_id": "test_fake_only_01__efficientnet_b4",
+  "started_at_iso": "2026-04-16T17:36:44Z",
+  "ended_at_iso": "2026-04-16T17:47:15Z",
+  "runtime_s": 600.0,
+  "buffer_s": 15.0,
+  "prediction_rows": 6276,
+  "active_video_model": "efficientnet_b4",
+  "resolved_model_name": "EfficientNet-B4 DF",
+  "error": ""
+}

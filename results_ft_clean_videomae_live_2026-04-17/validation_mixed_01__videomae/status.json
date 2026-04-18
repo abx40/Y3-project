@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "run_id": "validation_mixed_01__videomae",
+  "started_at_iso": "2026-04-17T06:17:54Z",
+  "ended_at_iso": "2026-04-17T06:28:27Z",
+  "runtime_s": 600.0,
+  "buffer_s": 15.0,
+  "prediction_rows": 6865,
+  "active_video_model": "videomae",
+  "resolved_model_name": "VideoMAE DF",
+  "error": ""
+}

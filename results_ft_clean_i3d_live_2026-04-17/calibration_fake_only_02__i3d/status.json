@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "run_id": "calibration_fake_only_02__i3d",
+  "started_at_iso": "2026-04-17T07:12:49Z",
+  "ended_at_iso": "2026-04-17T07:23:30Z",
+  "runtime_s": 597.8,
+  "buffer_s": 15.0,
+  "prediction_rows": 7973,
+  "active_video_model": "i3d",
+  "resolved_model_name": "I3D DF",
+  "error": ""
+}

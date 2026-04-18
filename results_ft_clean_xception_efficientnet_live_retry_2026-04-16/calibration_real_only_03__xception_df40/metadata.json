@@ -1,0 +1,14 @@
+{
+  "run_id": "calibration_real_only_03__xception_df40",
+  "session_name": "calibration_real_only_03__xception_df40",
+  "split": "calibration",
+  "kind": "real_only",
+  "ordinal": 3,
+  "video_path": "C:\\deepfake_eval\\f3net_clean_experiment_2026-04-15_v4\\sessions\\calibration\\calibration_real_only_03.mp4",
+  "labels_path": "C:\\deepfake_eval\\f3net_clean_experiment_2026-04-15_v4\\sessions\\calibration\\calibration_real_only_03_labels.csv",
+  "duration_s": 600.267,
+  "runtime_s": 600.267,
+  "buffer_s": 15.0,
+  "model": "xception_df40",
+  "started_at_iso": "2026-04-16T17:05:12Z"
+}

@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "run_id": "validation_mixed_03__efficientnet_b4",
+  "started_at_iso": "2026-04-16T20:46:53Z",
+  "ended_at_iso": "2026-04-16T20:57:23Z",
+  "runtime_s": 600.0,
+  "buffer_s": 15.0,
+  "prediction_rows": 7162,
+  "active_video_model": "efficientnet_b4",
+  "resolved_model_name": "EfficientNet-B4 DF",
+  "error": ""
+}

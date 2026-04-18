@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "run_id": "calibration_mixed_03__i3d",
+  "started_at_iso": "2026-04-17T07:44:28Z",
+  "ended_at_iso": "2026-04-17T07:54:57Z",
+  "runtime_s": 600.433,
+  "buffer_s": 15.0,
+  "prediction_rows": 7983,
+  "active_video_model": "i3d",
+  "resolved_model_name": "I3D DF",
+  "error": ""
+}

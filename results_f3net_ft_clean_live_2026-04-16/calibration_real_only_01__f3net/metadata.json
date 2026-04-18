@@ -1,0 +1,14 @@
+{
+  "run_id": "calibration_real_only_01__f3net",
+  "session_name": "calibration_real_only_01__f3net",
+  "split": "calibration",
+  "kind": "real_only",
+  "ordinal": 1,
+  "video_path": "C:\\deepfake_eval\\f3net_clean_experiment_2026-04-15_v4\\sessions\\calibration\\calibration_real_only_01.mp4",
+  "labels_path": "C:\\deepfake_eval\\f3net_clean_experiment_2026-04-15_v4\\sessions\\calibration\\calibration_real_only_01_labels.csv",
+  "duration_s": 600.233,
+  "runtime_s": 600.233,
+  "buffer_s": 15.0,
+  "model": "f3net",
+  "started_at_iso": "2026-04-16T01:11:49Z"
+}

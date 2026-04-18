@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "run_id": "calibration_mixed_02__videomae",
+  "started_at_iso": "2026-04-17T04:11:28Z",
+  "ended_at_iso": "2026-04-17T04:21:59Z",
+  "runtime_s": 600.533,
+  "buffer_s": 15.0,
+  "prediction_rows": 7010,
+  "active_video_model": "videomae",
+  "resolved_model_name": "VideoMAE DF",
+  "error": ""
+}

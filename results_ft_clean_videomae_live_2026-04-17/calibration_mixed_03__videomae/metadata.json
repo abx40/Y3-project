@@ -1,0 +1,14 @@
+{
+  "run_id": "calibration_mixed_03__videomae",
+  "session_name": "calibration_mixed_03__videomae",
+  "split": "calibration",
+  "kind": "mixed",
+  "ordinal": 3,
+  "video_path": "C:\\deepfake_eval\\f3net_clean_experiment_2026-04-15_v4\\sessions\\calibration\\calibration_mixed_03.mp4",
+  "labels_path": "C:\\deepfake_eval\\f3net_clean_experiment_2026-04-15_v4\\sessions\\calibration\\calibration_mixed_03_labels.csv",
+  "duration_s": 600.433,
+  "runtime_s": 600.433,
+  "buffer_s": 15.0,
+  "model": "videomae",
+  "started_at_iso": "2026-04-17T04:21:59Z"
+}

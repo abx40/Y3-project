@@ -1,0 +1,14 @@
+{
+  "run_id": "test_real_only_01__f3net",
+  "session_name": "test_real_only_01__f3net",
+  "split": "test",
+  "kind": "real_only",
+  "ordinal": 1,
+  "video_path": "C:\\deepfake_eval\\f3net_clean_experiment_2026-04-15_v4\\sessions\\test\\test_real_only_01.mp4",
+  "labels_path": "C:\\deepfake_eval\\f3net_clean_experiment_2026-04-15_v4\\sessions\\test\\test_real_only_01_labels.csv",
+  "duration_s": 600.0,
+  "runtime_s": 600.0,
+  "buffer_s": 15.0,
+  "model": "f3net",
+  "started_at_iso": "2026-04-16T02:25:18Z"
+}
