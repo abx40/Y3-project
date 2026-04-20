@@ -1,0 +1,7 @@
+backend,scope,scope_splits,live_windows,offline_windows,live_polarity,offline_polarity,live_auc,offline_auc
+f3net,heldout,"validation,test",600,600,high,high,0.616695,0.829627
+xception_df40,heldout,"validation,test",600,600,high,high,0.582403,0.779433
+efficientnet_b4,heldout,"validation,test",600,600,high,high,0.547266,0.797024
+effort_clip_l14,heldout,"validation,test",600,600,high,low,0.538532,0.442989
+i3d,heldout,"validation,test",600,590,high,high,0.529642,0.576814
+videomae,heldout,"validation,test",600,590,low,low,0.484948,0.500328

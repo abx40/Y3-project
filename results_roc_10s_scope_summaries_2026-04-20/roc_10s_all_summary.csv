@@ -1,0 +1,7 @@
+backend,scope,scope_splits,live_windows,offline_windows,live_polarity,offline_polarity,live_auc,offline_auc
+f3net,all,"calibration,validation,test",1142,1142,high,high,0.605815,0.800342
+xception_df40,all,"calibration,validation,test",1142,1142,high,high,0.593864,0.752111
+efficientnet_b4,all,"calibration,validation,test",1142,1142,high,high,0.574209,0.788616
+effort_clip_l14,all,"calibration,validation,test",1142,1142,high,low,0.531633,0.489043
+i3d,all,"calibration,validation,test",1142,1123,high,high,0.534973,0.559618
+videomae,all,"calibration,validation,test",1142,1123,low,low,0.500025,0.506515
