@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deepfake Ops Deck</title>
+  <style>
+    :root {
+      --bg:#07111d; --panel:#0f1d31ee; --line:#9ab4d426; --text:#ecf4ff; --muted:#92a5bf;
+      --cyan:#59b7ff; --mint:#4fe0b7; --warn:#ffb25b; --danger:#ff667d;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0; padding:24px; color:var(--text);
+      font-family:"Bahnschrift","Segoe UI Variable Display",Aptos,"Segoe UI",sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(89,183,255,.16), transparent 30%),
+        radial-gradient(circle at top right, rgba(79,224,183,.12), transparent 26%),
+        linear-gradient(180deg,#07111d 0%,#0a1320 100%);
+    }
+    .shell { max-width:1560px; margin:0 auto; display:grid; gap:18px; }
+    .hero,.panel,.metric { border:1px solid var(--line); border-radius:24px; background:var(--panel); box-shadow:0 22px 60px rgba(0,0,0,.28); }
+    .hero { padding:28px; }
+    .eyebrow { display:inline-flex; gap:10px; align-items:center; padding:8px 14px; border-radius:999px; background:#ffffff0a; color:var(--muted); font-size:12px; letter-spacing:.12em; text-transform:uppercase; }
+    .dot { width:8px; height:8px; border-radius:50%; background:var(--mint); box-shadow:0 0 16px rgba(79,224,183,.9); }
+    h1 { margin:14px 0 8px; font-size:clamp(34px,5vw,56px); line-height:.95; letter-spacing:-.04em; }
+    .subtitle { margin:0; max-width:760px; color:var(--muted); line-height:1.6; }
+    .hero-top,.header-row,.user-row,.detail-row,.feed-item { display:flex; justify-content:space-between; gap:14px; }
+    .hero-top { align-items:flex-start; flex-wrap:wrap; }
+    .pill-row,.controls,.legend { display:flex; gap:10px; flex-wrap:wrap; }
+    .pill { padding:8px 12px; border-radius:999px; background:#ffffff0a; border:1px solid #ffffff12; font-size:13px; font-weight:700; }
+    .good { color:var(--mint); } .warn { color:var(--warn); } .bad { color:var(--danger); } .neutral { color:var(--muted); }
+    .hero-grid,.stats,.main-grid,.diagnostics-grid { display:grid; gap:16px; }
+    .hero-grid,.stats { grid-template-columns:repeat(4,minmax(0,1fr)); margin-top:22px; }
+    .main-grid { grid-template-columns:minmax(0,1.45fr) minmax(320px,.9fr); }
+    .diagnostics-grid { grid-template-columns:minmax(360px,1.08fr) minmax(340px,.92fr); grid-template-rows:repeat(2,minmax(0,1fr)); min-height:760px; align-items:stretch; }
+    .metric { padding:16px 18px; }
+    .metric .label { font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); }
+    .metric .value { margin-top:8px; font-size:clamp(28px,4vw,40px); line-height:1; letter-spacing:-.04em; font-weight:800; }
+    .metric .note { margin-top:8px; font-size:13px; color:var(--muted); }
+    .panel { padding:22px; }
+    .chart-panel { position:relative; }
+    .chart-panel .header-row { padding-right:52px; }
+    .chart-panel .controls { position:absolute; top:22px; right:22px; }
+    .title { margin:0; font-size:20px; letter-spacing:-.02em; }
+    .copy { margin:6px 0 0; color:var(--muted); font-size:14px; line-height:1.5; }
+    select,input,button { padding:10px 12px; border-radius:12px; border:1px solid #ffffff18; background:#ffffff08; color:var(--text); font:inherit; }
+    button { cursor:pointer; font-weight:700; background:linear-gradient(135deg,rgba(89,183,255,.18),rgba(79,224,183,.18)); }
+    .refresh-btn {
+      display:inline-flex; align-items:center; justify-content:center;
+      width:36px; min-width:36px; min-height:36px; padding:0;
+      border-radius:12px;
+      border:1px solid rgba(89,183,255,.22);
+      background:linear-gradient(135deg,rgba(89,183,255,.16),rgba(79,224,183,.10));
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.06), 0 10px 24px rgba(0,0,0,.18);
+      transition:transform .16s ease, box-shadow .16s ease, border-color .16s ease, background .16s ease;
+    }
+    .refresh-btn:hover {
+      transform:translateY(-1px);
+      border-color:rgba(89,183,255,.38);
+      background:linear-gradient(135deg,rgba(89,183,255,.24),rgba(79,224,183,.14));
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 14px 30px rgba(0,0,0,.22);
+    }
+    .refresh-btn:active { transform:translateY(0); }
+    .refresh-btn::before {
+      content:"↻";
+      display:inline-flex; align-items:center; justify-content:center;
+      width:100%; height:100%;
+      border-radius:inherit;
+      color:var(--cyan);
+      font-size:15px; font-weight:900;
+      line-height:1;
+    }
+    .chart-wrap { height:390px; padding:12px; border-radius:18px; border:1px solid #ffffff0f; background:#ffffff03; }
+    canvas { width:100%; height:100%; display:block; }
+    .legend-item { display:inline-flex; align-items:center; gap:8px; color:var(--muted); font-size:13px; }
+    .swatch { width:18px; height:4px; border-radius:999px; }
+    .stack { display:grid; gap:12px; }
+    .user-card,.empty { border-radius:18px; padding:16px; border:1px solid #ffffff0d; background:#ffffff04; }
+    .user-card { cursor:pointer; transition:.18s ease; }
+    .user-card:hover,.user-card.active { transform:translateY(-1px); border-color:#59b7ff55; background:#59b7ff14; }
+    .user-id { font-size:16px; font-weight:800; }
+    .meta,.feed-detail,.footer { color:var(--muted); font-size:13px; }
+    .bar { height:10px; margin-top:10px; border-radius:999px; background:#ffffff0d; overflow:hidden; }
+    .bar > div { height:100%; background:linear-gradient(90deg,var(--mint),var(--cyan),var(--danger)); }
+    .feed-list { max-height:680px; overflow:auto; padding-right:6px; align-content:start; }
+    .feed-list::-webkit-scrollbar { width:10px; }
+    .feed-list::-webkit-scrollbar-thumb { background:#ffffff18; border-radius:999px; }
+    .feed-item,.detail-row { padding:10px 0; border-bottom:1px solid #ffffff0d; align-items:flex-start; }
+    .feed-item:last-child,.detail-row:last-child { border-bottom:0; padding-bottom:0; }
+    .feed-item { display:grid; grid-template-columns:84px minmax(0,1fr); gap:12px; }
+    .feed-time { width:auto; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em; line-height:1.35; }
+    .feed-body { min-width:0; display:grid; gap:4px; }
+    .feed-head { display:flex; align-items:center; gap:10px; min-width:0; }
+    .feed-name { font-weight:800; font-size:14px; }
+    .feed-badge { display:inline-flex; align-items:center; padding:4px 8px; border-radius:999px; font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; border:1px solid #ffffff12; background:#ffffff08; color:var(--muted); }
+    .feed-badge.join { color:var(--cyan); }
+    .feed-badge.camera { color:var(--mint); }
+    .feed-badge.video { color:var(--warn); }
+    .feed-badge.connection { color:#9eb8ff; }
+    .feed-badge.schedule { color:#ff9db0; }
+    .feed-badge.system { color:var(--muted); }
+    .feed-detail { line-height:1.45; }
+    .feed-meta { color:var(--muted); font-size:12px; }
+    .detail-label { color:var(--muted); font-size:13px; }
+    .detail-value { font-size:14px; font-weight:700; text-align:right; max-width:62%; overflow-wrap:anywhere; }
+    .empty { text-align:center; color:var(--muted); }
+    details.panel { padding:0; overflow:hidden; }
+    details.panel[open] { padding-bottom:22px; }
+    .diag-summary { list-style:none; cursor:pointer; padding:22px; display:flex; justify-content:space-between; align-items:center; gap:14px; }
+    .diag-summary::-webkit-details-marker { display:none; }
+    .diag-summary-copy { color:var(--muted); font-size:14px; margin-top:6px; }
+    .diag-chevron { color:var(--muted); font-size:22px; line-height:1; transition:transform .18s ease; }
+    details[open] .diag-chevron { transform:rotate(180deg); }
+    .diag-content { padding:0 22px; }
+    .diag-feed { grid-row:1 / span 2; min-height:0; height:100%; display:flex; flex-direction:column; }
+    .diag-feed .feed-list { flex:1; min-height:0; max-height:none; }
+    .diag-runtime,.diag-readout { min-height:0; height:100%; display:flex; flex-direction:column; }
+    .footer { text-align:center; padding-bottom:6px; }
+    @media (max-width:1280px) { .hero-grid,.stats,.main-grid,.diagnostics-grid { grid-template-columns:1fr; } }
+    @media (max-width:768px) { body { padding:14px; } .hero,.panel { padding:18px; } .chart-wrap { height:320px; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="hero-top">
+        <div>
+          <div class="eyebrow"><span class="dot"></span>Prototype Operator View</div>
+          <h1>Deepfake Ops Deck</h1>
+        </div>
+        <div>
+          <div class="pill-row" id="statusPills"></div>
+          <div class="pill-row" id="sessionPills" style="margin-top:10px;"></div>
+        </div>
+      </div>
+      <div class="hero-grid" id="heroMetrics"></div>
+      <div class="stats" id="scoreMetrics"></div>
+    </section>
+
+    <section class="main-grid">
+      <div class="panel chart-panel">
+        <div class="header-row">
+          <div>
+            <h2 class="title">Signal Timeline</h2>
+            <p class="copy">Raw and smoothed probabilities for the selected participant.</p>
+          </div>
+          <div class="controls">
+            <button id="refreshBtn" class="refresh-btn" type="button" aria-label="Refresh dashboard" title="Refresh dashboard"></button>
+          </div>
+        </div>
+        <div class="chart-wrap"><canvas id="timeline"></canvas></div>
+        <div class="legend" style="margin-top:14px;">
+          <span class="legend-item"><span class="swatch" style="background:#59b7ff;"></span>Display score</span>
+          <span class="legend-item"><span class="swatch" style="background:#4fe0b7;"></span>Display score (smoothed)</span>
+          <span class="legend-item"><span class="swatch" style="background:#ff667d;"></span>Threshold</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h2 class="title">Participants</h2>
+        <p class="copy">Pick which stream you want to inspect.</p>
+        <div class="stack" id="users"></div>
+      </div>
+    </section>
+
+    <details class="panel" id="diagnosticsPanel">
+      <summary class="diag-summary">
+        <div>
+          <h2 class="title">Diagnostics</h2>
+          <div class="diag-summary-copy">Automation feed, runtime summary, and operator readout.</div>
+        </div>
+        <div class="diag-chevron">⌄</div>
+      </summary>
+      <div class="diag-content">
+        <section class="diagnostics-grid">
+          <div class="panel diag-feed">
+            <h2 class="title">Automation Feed</h2>
+            <p class="copy">Session, browser, camera, and run events from the current live stack.</p>
+            <div class="stack" id="feed"></div>
+          </div>
+          <div class="panel diag-runtime">
+            <h2 class="title">Runtime Summary</h2>
+            <p class="copy">Model, backend, session wiring, and current run state.</p>
+            <div class="stack" id="details"></div>
+          </div>
+          <div class="panel diag-readout">
+            <h2 class="title">Operator Readout</h2>
+            <p class="copy">Quick interpretation of what the live run is doing.</p>
+            <div class="stack" id="assessment"></div>
+          </div>
+        </section>
+      </div>
+    </details>
+
+    <div class="footer">Prototype file: <strong>dashboard_v2.html</strong>. Existing endpoints only.</div>
+  </div>
+
+  <script>
+    const PARAMS = new URLSearchParams(window.location.search);
+    const REPLAY_MODE = PARAMS.get('replay') === '1';
+    const REPLAY_FPS = Math.max(1, Number(PARAMS.get('fps')) || 30);
+    const API_BASE = `${window.location.protocol === 'file:' ? 'http:' : window.location.protocol}//${window.location.hostname || 'localhost'}:8001`;
+    const state = {
+      windowSeconds: 60,
+      currentUser: '',
+      raw: [],
+      smoothed: [],
+      users: [],
+      info: null,
+      automation: null,
+      replay: null,
+    };
+    const el = {
+      statusPills: document.getElementById('statusPills'),
+      sessionPills: document.getElementById('sessionPills'),
+      heroMetrics: document.getElementById('heroMetrics'),
+      scoreMetrics: document.getElementById('scoreMetrics'),
+      feed: document.getElementById('feed'),
+      users: document.getElementById('users'),
+      details: document.getElementById('details'),
+      assessment: document.getElementById('assessment'),
+      refreshBtn: document.getElementById('refreshBtn'),
+      timeline: document.getElementById('timeline'),
+    };
+
+    const FALLBACK_CALIBRATION = {
+      xception_df40: { threshold: 0.01, t_on: 0.01, t_off: 0.01, polarity: 'high', source: 'results_scored_v2 fallback' },
+      effort_clip_l14: { threshold: 0.05, t_on: 0.05, t_off: 0.00, polarity: 'high', source: 'results_scored_v2 fallback' },
+      efficientnet_b4: { threshold: 0.05, t_on: 0.05, t_off: 0.00, polarity: 'high', source: 'results_scored_v2 fallback' },
+      f3net: { threshold: 0.05, t_on: 0.05, t_off: 0.00, polarity: 'high', source: 'results_scored_v2 fallback' },
+      i3d: { threshold: 0.32, t_on: 0.32, t_off: 0.22, polarity: 'low', source: 'results_scored_v2 fallback' },
+      videomae: { threshold: 0.05, t_on: 0.05, t_off: 0.00, polarity: 'low', source: 'results_scored_v2 fallback' },
+    };
+
+    const pct = v => Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : '--';
+    const when = ts => ts ? new Date(ts).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '--';
+    const rel = seconds => {
+      if (!Number.isFinite(seconds)) return '--';
+      if (Math.abs(seconds) < 1) return 'now';
+      const sign = seconds < 0 ? '-' : '+';
+      const abs = Math.abs(seconds);
+      if (abs < 60) return `${sign}${Math.round(abs)}s`;
+      const minutes = Math.floor(abs / 60);
+      const rem = Math.round(abs % 60);
+      return rem ? `${sign}${minutes}m ${rem}s` : `${sign}${minutes}m`;
+    };
+    const ago = ts => {
+      if (!ts) return '--';
+      const d = Math.max(0, Date.now() - ts), s = Math.round(d / 1000);
+      if (s < 60) return `${s}s ago`;
+      const m = Math.round(s / 60);
+      return m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
+    };
+    const escapeHtml = value => String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+    const badgeClass = (p,t) => !Number.isFinite(p) ? 'neutral' : p >= t ? 'bad' : p >= t * .75 ? 'warn' : 'good';
+    const truncate = (value, max = 58) => {
+      const text = String(value ?? '');
+      return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+    };
+    const eventTone = eventName => {
+      if (!eventName) return 'system';
+      if (eventName.includes('join') || eventName.includes('init')) return 'join';
+      if (eventName.includes('camera')) return 'camera';
+      if (eventName.includes('video')) return 'video';
+      if (eventName.includes('connect')) return 'connection';
+      if (eventName.includes('leave') || eventName.includes('schedule')) return 'schedule';
+      return 'system';
+    };
+    const summarizeEventDetail = detail => {
+      if (!detail) return 'No extra detail';
+      if (typeof detail !== 'object') return truncate(detail, 88);
+      const preferredKeys = ['topic', 'sessionTopic', 'name', 'label', 'state', 'afterSeconds', 'matchedBy', 'inventorySource', 'reason'];
+      const bits = [];
+      for (const key of preferredKeys) {
+        if (detail[key] != null && detail[key] !== '') bits.push(`${key}: ${truncate(detail[key], 54)}`);
+        if (bits.length >= 2) break;
+      }
+      if (!bits.length) {
+        for (const [key, value] of Object.entries(detail)) {
+          if (value == null || value === '') continue;
+          bits.push(`${key}: ${truncate(value, 54)}`);
+          if (bits.length >= 2) break;
+        }
+      }
+      return bits.length ? bits.join(' • ') : 'No extra detail';
+    };
+    const dedupeEvents = events => {
+      const filtered = [];
+      const seen = new Map();
+      for (const item of events) {
+        const time = Date.parse(item.server_time_iso || '') || 0;
+        const key = `${item.event}::${summarizeEventDetail(item.detail)}`;
+        const last = seen.get(key);
+        if (last != null && Math.abs(time - last) < 2500) continue;
+        seen.set(key, time);
+        filtered.push(item);
+      }
+      return filtered;
+    };
+    const stat = series => {
+      if (!series.length) return { latest:null, avg:null, max:null, min:null, volatility:null, fps:null };
+      const values = series.map(x => x.probability);
+      let diff = 0;
+      for (let i = 1; i < values.length; i += 1) diff += Math.abs(values[i] - values[i - 1]);
+      const span = series.length >= 2 ? series.at(-1).timestamp - series[0].timestamp : 0;
+      return {
+        latest: values.at(-1),
+        avg: values.reduce((a,b) => a + b, 0) / values.length,
+        max: Math.max(...values),
+        min: Math.min(...values),
+        volatility: values.length > 1 ? diff / (values.length - 1) : 0,
+        fps: span > 0 ? (series.length - 1) / (span / 1000) : null,
+      };
+    };
+    const eventPick = names => ((state.automation?.recent_events || []).slice().reverse().find(item => names.includes(item.event))) || null;
+    const metric = (label, value, note) => `<div class="metric"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(String(value))}</div><div class="note">${escapeHtml(note)}</div></div>`;
+    const detail = (label, value) => `<div class="detail-row"><div class="detail-label">${escapeHtml(label)}</div><div class="detail-value">${escapeHtml(String(value))}</div></div>`;
+    const pill = (text, klass) => `<span class="pill ${klass || 'neutral'}">${escapeHtml(text)}</span>`;
+    const activeCalibration = () => {
+      const backend = state.info?.active_video_model || state.info?.video_model || '';
+      if (Number.isFinite(state.info?.dashboard_threshold)) {
+        return {
+          threshold: Number(state.info.dashboard_threshold),
+          t_on: Number.isFinite(state.info?.dashboard_t_on) ? Number(state.info.dashboard_t_on) : Number(state.info.dashboard_threshold),
+          t_off: Number.isFinite(state.info?.dashboard_t_off) ? Number(state.info.dashboard_t_off) : null,
+          polarity: state.info?.dashboard_signal_polarity || 'high',
+          source: state.info?.dashboard_threshold_source || 'runtime',
+        };
+      }
+      return FALLBACK_CALIBRATION[backend] || {
+        threshold: Number.isFinite(state.info?.threshold) ? Number(state.info.threshold) : 0.5,
+        t_on: Number.isFinite(state.info?.threshold) ? Number(state.info.threshold) : 0.5,
+        t_off: null,
+        polarity: 'high',
+        source: 'runtime',
+      };
+    };
+    const orientProbability = probability => {
+      if (!Number.isFinite(probability)) return probability;
+      return activeCalibration().polarity === 'low' ? (1 - probability) : probability;
+    };
+    const orientedSeries = series => series.map(point => ({ ...point, probability: orientProbability(point.probability) }));
+
+    function loadReplayScript(src) {
+      return new Promise((resolve, reject) => {
+        if (!src || window.DASHBOARD_REPLAY_DATA) return resolve();
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(`Unable to load replay script: ${src}`));
+        document.head.appendChild(script);
+      });
+    }
+
+    async function loadReplayData() {
+      const candidates = [
+        PARAMS.get('replayScript'),
+        '../screencast/assets/demo/dashboard_replay_real.js',
+        'dashboard_replay_real.js',
+      ].filter(Boolean);
+      let lastError = null;
+      for (const src of [...new Set(candidates)]) {
+        try {
+          await loadReplayScript(src);
+          if (window.DASHBOARD_REPLAY_DATA) break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (!window.DASHBOARD_REPLAY_DATA) throw lastError || new Error('window.DASHBOARD_REPLAY_DATA was not found');
+      return normalizeReplayData(window.DASHBOARD_REPLAY_DATA);
+    }
+
+    function normalizeReplayData(data) {
+      const fallbackId = data.replay?.participant_name || 'bot_capture_01';
+      const grouped = new Map();
+      for (const sample of data.samples || []) {
+        const id = sample.participant_id || sample.user_id || fallbackId;
+        if (!grouped.has(id)) grouped.set(id, []);
+        grouped.get(id).push(sample);
+      }
+      const participantDefs = (data.participants && data.participants.length)
+        ? data.participants
+        : [...grouped.keys()].map(id => ({ participant_id: id, user_id: id, participant_name: id, gt_label: data.samples?.[0]?.gt_label || 'unknown' }));
+      const participants = participantDefs.map(def => {
+        const id = def.participant_id || def.user_id || def.participant_name || fallbackId;
+        const samples = (grouped.get(id) || []).slice().sort((a,b) => (a.relative_time_s || 0) - (b.relative_time_s || 0));
+        return { ...def, participant_id: id, user_id: id, participant_name: def.participant_name || id, samples };
+      }).filter(participant => participant.samples.length);
+      const duration = Number(data.replay?.loop_duration_s || data.replay?.duration_s)
+        || Math.max(1, ...participants.flatMap(p => p.samples.map(s => Number(s.relative_time_s) || 0)));
+      return { ...data, replayParticipants: participants, replayDuration: duration };
+    }
+
+    function replayValueAt(samples, localTime, key) {
+      if (!samples.length) return null;
+      const duration = state.replay?.duration || 1;
+      const t = ((localTime % duration) + duration) % duration;
+      let lo = 0, hi = samples.length - 1;
+      while (lo < hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        if ((samples[mid].relative_time_s || 0) < t) lo = mid + 1;
+        else hi = mid;
+      }
+      const right = samples[lo];
+      const left = samples[Math.max(0, lo - 1)];
+      if (!left || !right || right.relative_time_s === left.relative_time_s) return Number(right[key]);
+      const alpha = (t - left.relative_time_s) / (right.relative_time_s - left.relative_time_s);
+      return Number(left[key]) + (Number(right[key]) - Number(left[key])) * Math.max(0, Math.min(1, alpha));
+    }
+
+    function replayWindowSeries(participant, currentSec, key, nowMs) {
+      const duration = state.replay.duration;
+      const start = currentSec - state.windowSeconds;
+      const points = [];
+      const pushPoint = (sample, adjustedTime) => {
+        const value = Number(sample[key]);
+        if (!Number.isFinite(value)) return;
+        points.push({
+          timestamp: nowMs + (adjustedTime - currentSec) * 1000,
+          probability: value,
+        });
+      };
+      if (start < 0) {
+        const wrappedStart = duration + start;
+        for (const sample of participant.samples) {
+          const t = Number(sample.relative_time_s) || 0;
+          if (t >= wrappedStart) pushPoint(sample, t - duration);
+        }
+        for (const sample of participant.samples) {
+          const t = Number(sample.relative_time_s) || 0;
+          if (t <= currentSec) pushPoint(sample, t);
+        }
+      } else {
+        for (const sample of participant.samples) {
+          const t = Number(sample.relative_time_s) || 0;
+          if (t >= start && t <= currentSec) pushPoint(sample, t);
+        }
+      }
+      return points.sort((a,b) => a.timestamp - b.timestamp);
+    }
+
+    function replayAutomation(data, nowMs) {
+      const iso = offset => new Date(nowMs - offset).toISOString();
+      return {
+        connected: true,
+        camera_selected: true,
+        video_started: true,
+        recent_events: [
+          { event: 'join_success', server_time_iso: iso(9000), detail: { sessionTopic: data.replay?.topic || 'Replay session' } },
+          { event: 'camera_selected', server_time_iso: iso(6500), detail: { label: 'recorded replay stream' } },
+          { event: 'video_started', server_time_iso: iso(4200), detail: { reason: 'screencast replay' } },
+          { event: 'replay_loop', server_time_iso: iso(1200), detail: { afterSeconds: data.replayDuration, matchedBy: 'recorded prediction CSV' } },
+        ],
+      };
+    }
+
+    function updateReplayFrame(now) {
+      const replay = state.replay;
+      if (!replay?.enabled) return;
+      const data = replay.data;
+      const elapsed = ((now - replay.startedAt) / 1000) % replay.duration;
+      const nowMs = Date.now();
+      if (!state.currentUser || !data.replayParticipants.some(p => p.user_id === state.currentUser)) {
+        state.currentUser = data.replay?.default_participant_id || data.replayParticipants[0]?.user_id || '';
+      }
+      state.users = data.replayParticipants.map(participant => {
+        const current = replayValueAt(participant.samples, elapsed, 'display_score');
+        const windowValues = replayWindowSeries(participant, elapsed, 'display_score', nowMs).map(point => point.probability);
+        const avg = windowValues.length ? windowValues.reduce((sum, value) => sum + value, 0) / windowValues.length : current;
+        return {
+          user_id: participant.user_id,
+          frame_count: participant.sample_count || participant.samples.length,
+          last_seen: nowMs,
+          last_probability: current,
+          avg_probability: avg,
+          last_event: participant.gt_label === 'fake' ? 'recorded_fake' : 'recorded_real',
+        };
+      });
+      const selected = data.replayParticipants.find(p => p.user_id === state.currentUser) || data.replayParticipants[0];
+      state.raw = selected ? replayWindowSeries(selected, elapsed, 'display_score', nowMs) : [];
+      state.smoothed = selected ? replayWindowSeries(selected, elapsed, 'smoothed_score', nowMs) : [];
+      state.info = {
+        model: data.replay?.backend_name || data.source_run?.backend || 'F3Net fine-tuned',
+        active_video_model: data.replay?.backend_key || data.source_run?.backend || 'f3net',
+        video_model: data.replay?.backend_key || data.source_run?.backend || 'f3net',
+        device: 'replay',
+        run_id: data.source_run?.run_id || 'dashboard_replay',
+        session_id: data.replay?.topic || data.source_run?.session_name || 'Replay session',
+        dashboard_threshold: Number(data.replay?.threshold ?? data.replay?.t_on ?? 0.82),
+        dashboard_t_on: Number(data.replay?.t_on ?? data.replay?.threshold ?? 0.82),
+        dashboard_t_off: Number(data.replay?.t_off ?? data.replay?.threshold ?? 0.82),
+        dashboard_signal_polarity: data.replay?.polarity || 'high',
+        dashboard_threshold_source: 'replay_file',
+        threshold: Number(data.replay?.threshold ?? 0.82),
+        face_crop_mode: 'recorded',
+        python_executable: 'n/a',
+      };
+      state.automation = replayAutomation(data, nowMs);
+      render();
+    }
+
+    async function fetchJson(path) {
+      const resp = await fetch(`${API_BASE}${path}`);
+      if (!resp.ok) throw new Error(`${path} -> ${resp.status}`);
+      return resp.json();
+    }
+
+    async function refresh() {
+      if (state.replay?.enabled) {
+        updateReplayFrame(performance.now());
+        return;
+      }
+      try {
+        const [info, usersPayload, automation] = await Promise.all([fetchJson('/info'), fetchJson('/users'), fetchJson('/automation/status')]);
+        state.info = info;
+        state.users = usersPayload.users || [];
+        state.automation = automation;
+        const currentIds = state.users.map(user => user.user_id);
+        if (!state.currentUser || !currentIds.includes(state.currentUser)) {
+          state.currentUser = [...state.users].sort((a,b) => ((b.frame_count || 0) - (a.frame_count || 0)) || ((b.last_seen || 0) - (a.last_seen || 0)))[0]?.user_id || '';
+        }
+        if (state.currentUser) {
+          const data = await fetchJson(`/data/${encodeURIComponent(state.currentUser)}?window=${state.windowSeconds}`);
+          state.raw = data.raw || [];
+          state.smoothed = data.smoothed || [];
+        } else {
+          state.raw = [];
+          state.smoothed = [];
+        }
+        render();
+      } catch (error) {
+        console.error('refresh failed', error);
+      }
+    }
+
+    function render() {
+      const calibration = activeCalibration();
+      const t = calibration.t_on;
+      const rawDisplay = orientedSeries(state.raw);
+      const smoothDisplay = orientedSeries(state.smoothed);
+      const raw = stat(rawDisplay), smooth = stat(smoothDisplay), users = state.users || [];
+      const joined = eventPick(['connected', 'join_success']);
+      const camera = eventPick(['camera_selected']);
+      const topic = joined?.detail?.sessionTopic || joined?.detail?.topic || '--';
+      const frames = users.reduce((sum, user) => sum + (user.frame_count || 0), 0);
+      const polarityLabel = calibration.polarity === 'low' ? 'inverted from raw score' : 'direct fake score';
+
+      const activeBackend = state.info?.active_video_model || state.info?.video_model || '--';
+      const thresholdSourceLabel = calibration.source === 'calibration' ? 'frame-server calibration' : calibration.source;
+
+      el.statusPills.innerHTML = [
+        pill(`Session ${state.automation?.connected ? 'live' : 'idle'}`, state.automation?.connected ? 'good' : 'neutral'),
+        pill(`Camera ${state.automation?.camera_selected ? 'ready' : 'pending'}`, state.automation?.camera_selected ? 'good' : 'warn'),
+        pill(`Video ${state.automation?.video_started ? 'streaming' : 'waiting'}`, state.automation?.video_started ? 'good' : 'warn'),
+        pill(`Frames ${frames}`, frames > 0 ? 'good' : 'neutral'),
+      ].join('');
+
+      el.sessionPills.innerHTML = [
+        pill(`Backend ${activeBackend}`),
+        pill(`Device ${state.info?.device || '--'}`),
+        pill(`Topic ${topic}`),
+        pill(`User ${state.currentUser || '--'}`),
+        pill(`Threshold ${pct(t)} (${calibration.polarity})`),
+      ].join('');
+
+      el.heroMetrics.innerHTML = [
+        metric('Current signal', pct(raw.latest), `${polarityLabel} at ${when(state.raw.at(-1)?.timestamp)}`),
+        metric('Smoothed signal', pct(smooth.latest), '15-frame average on the display score'),
+        metric('Approx FPS', raw.fps ? raw.fps.toFixed(1) : '--', 'Estimated from sample spacing'),
+        metric('Threshold source', pct(t), `${activeBackend} • ${thresholdSourceLabel}`),
+      ].join('');
+
+      el.scoreMetrics.innerHTML = [
+        metric('Live risk', pct(raw.latest), raw.latest != null ? `${badgeClass(raw.latest, t).toUpperCase()} vs ${pct(t)}` : 'No live data'),
+        metric('Average', pct(raw.avg), 'Mean display score'),
+        metric('Peak', pct(raw.max), 'Highest spike in window'),
+        metric('Volatility', raw.volatility != null ? raw.volatility.toFixed(3) : '--', 'Avg frame-to-frame change'),
+      ].join('');
+
+      if (!users.length) {
+        el.users.innerHTML = '<div class="empty">No active users yet.</div>';
+      } else {
+        el.users.innerHTML = [...users].sort((a,b) => ((b.frame_count || 0) - (a.frame_count || 0)) || ((b.last_seen || 0) - (a.last_seen || 0))).map(user => `
+          <div class="user-card${user.user_id === state.currentUser ? ' active' : ''}" data-user="${escapeHtml(user.user_id)}">
+            <div class="user-row">
+              <div><div class="user-id">${escapeHtml(user.user_id)}</div><div class="meta">${user.frame_count || 0} frames • ${ago(user.last_seen)}</div></div>
+              <span class="pill ${badgeClass(orientProbability(user.last_probability), t)}">${pct(orientProbability(user.last_probability))}</span>
+            </div>
+            <div class="bar"><div style="width:${Math.max(0, Math.min(100, orientProbability(user.last_probability || 0) * 100))}%"></div></div>
+            <div class="meta">Avg ${pct(orientProbability(user.avg_probability))} • Event ${escapeHtml(user.last_event || 'unknown')}</div>
+          </div>
+        `).join('');
+        for (const card of el.users.querySelectorAll('.user-card')) {
+          card.addEventListener('click', () => { state.currentUser = card.dataset.user || ''; refresh(); });
+        }
+      }
+
+      el.details.innerHTML = [
+        detail('Model label', state.info?.model || '--'),
+        detail('Active backend', state.info?.active_video_model || state.info?.video_model || '--'),
+        detail('Dashboard threshold', `${pct(t)} (${calibration.polarity})`),
+        detail('Calibrated threshold', `${pct(calibration.t_on)} (${calibration.polarity})`),
+        detail('Threshold source', calibration.source || '--'),
+        detail('Runtime pred_label threshold', typeof state.info?.threshold === 'number' ? state.info.threshold.toFixed(2) : '--'),
+        detail('Face crop', String(state.info?.face_crop_mode || '--').toUpperCase()),
+        detail('Run ID', state.info?.run_id || '--'),
+        detail('Session ID', state.info?.session_id || '--'),
+        detail('Python', state.info?.python_executable || '--'),
+        detail('Session topic', topic),
+      ].join('');
+
+      const readout = raw.latest == null ? 'No active signal yet' : raw.latest >= t ? 'Current signal is above threshold' : raw.latest >= t * .75 ? 'Current signal is approaching threshold' : 'Current signal is below threshold';
+      el.assessment.innerHTML = [
+        detail('Current read', readout),
+        detail('Connection path', state.automation?.connected && state.automation?.camera_selected && state.automation?.video_started ? 'Browser, camera, and video path are live' : 'One or more live stages are incomplete'),
+        detail('Chart density', `${state.raw.length} raw / ${state.smoothed.length} smooth`),
+        detail('Selected user', state.currentUser || '--'),
+        detail('Display policy', `threshold ${t.toFixed(2)} • ${calibration.polarity} polarity`),
+        detail('Threshold mode', 'Calibrated default'),
+        detail('Signal stability', smooth.volatility != null ? `${smooth.volatility.toFixed(3)} avg step delta` : '--'),
+        detail('Prototype note', 'Stronger operator layout, still plain HTML + JS'),
+      ].join('');
+
+      const events = dedupeEvents((state.automation?.recent_events || []).slice().reverse()).slice(0, 10);
+      el.feed.className = 'stack feed-list';
+      el.feed.innerHTML = events.length ? events.map(item => {
+        const detailSummary = summarizeEventDetail(item.detail);
+        const tone = eventTone(item.event);
+        return `<div class="feed-item"><div class="feed-time">${when(Date.parse(item.server_time_iso))}</div><div class="feed-body"><div class="feed-head"><span class="feed-badge ${escapeHtml(tone)}">${escapeHtml(tone)}</span><div class="feed-name">${escapeHtml(item.event)}</div></div><div class="feed-detail">${escapeHtml(detailSummary)}</div></div></div>`;
+      }).join('') : '<div class="empty">No automation events yet.</div>';
+
+      drawTimeline();
+    }
+
+    function drawTimeline() {
+      const canvas = el.timeline, box = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1, width = Math.max(320, Math.floor(box.width * dpr)), height = Math.max(220, Math.floor(box.height * dpr));
+      if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+      const ctx = canvas.getContext('2d'); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,width,height); ctx.scale(dpr,dpr);
+      const W = width / dpr, H = height / dpr, pad = { top:18, right:18, bottom:34, left:42 }, cw = W - pad.left - pad.right, ch = H - pad.top - pad.bottom;
+      const calibration = activeCalibration();
+      const displayRaw = orientedSeries(state.raw);
+      const displaySmoothed = orientedSeries(state.smoothed);
+      const all = [...displayRaw, ...displaySmoothed], threshold = calibration.t_on;
+      if (!all.length) { ctx.fillStyle = '#92a5bf'; ctx.font = '14px Bahnschrift'; ctx.fillText('No live data yet', pad.left, H / 2); ctx.setTransform(1,0,0,1,0,0); return; }
+      const minT = Math.min(...all.map(x => x.timestamp)), maxT = Math.max(...all.map(x => x.timestamp)), span = Math.max(1, maxT - minT);
+      const X = t => pad.left + ((t - minT) / span) * cw, Y = p => pad.top + (1 - p) * ch;
+      ctx.fillStyle = 'rgba(255,102,125,.08)'; ctx.fillRect(pad.left, pad.top, cw, ch * (1 - threshold));
+      ctx.strokeStyle = 'rgba(154,180,212,.12)'; ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i += 1) { const gy = pad.top + (ch / 4) * i; ctx.beginPath(); ctx.moveTo(pad.left, gy); ctx.lineTo(pad.left + cw, gy); ctx.stroke(); ctx.fillStyle = '#92a5bf'; ctx.font = '12px Bahnschrift'; ctx.fillText((1 - i / 4).toFixed(2), 8, gy + 4); }
+      drawSeries(ctx, displayRaw, X, Y, '#59b7ff', 1.7, 0);
+      drawSeries(ctx, displaySmoothed, X, Y, '#4fe0b7', 2.8, 14);
+      ctx.strokeStyle = '#ff667d'; ctx.setLineDash([8,6]); ctx.beginPath(); ctx.moveTo(pad.left, Y(threshold)); ctx.lineTo(pad.left + cw, Y(threshold)); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = '#92a5bf';
+      ctx.font = '12px Bahnschrift';
+      for (let i = 0; i <= 4; i += 1) {
+        const tx = pad.left + (cw / 4) * i;
+        const ts = minT + (span / 4) * i;
+        const label = rel((ts - maxT) / 1000);
+        ctx.fillText(label, tx - 18, H - 10);
+      }
+      ctx.fillStyle = 'rgba(146,165,191,.9)';
+      ctx.font = '11px Bahnschrift';
+      ctx.fillText(`Latest sample ${when(maxT)}`, pad.left, pad.top - 4);
+      ctx.textAlign = 'right';
+      ctx.fillText(`Relative to current window`, pad.left + cw, pad.top - 4);
+      ctx.textAlign = 'left';
+      ctx.setTransform(1,0,0,1,0,0);
+    }
+
+    function drawSeries(ctx, series, X, Y, color, width, blur) {
+      if (!series.length) return;
+      ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.shadowColor = blur ? `${color}66` : 'transparent'; ctx.shadowBlur = blur; ctx.beginPath();
+      series.forEach((point, i) => i ? ctx.lineTo(X(point.timestamp), Y(point.probability)) : ctx.moveTo(X(point.timestamp), Y(point.probability)));
+      ctx.stroke(); ctx.restore();
+    }
+
+    function bind() {
+      el.refreshBtn.addEventListener('click', refresh);
+      window.addEventListener('resize', drawTimeline);
+    }
+
+    async function init() {
+      bind();
+      if (!REPLAY_MODE) {
+        refresh();
+        window.setInterval(refresh, 1500);
+        return;
+      }
+      try {
+        const data = await loadReplayData();
+        state.replay = {
+          enabled: true,
+          data,
+          duration: data.replayDuration,
+          startedAt: performance.now(),
+          lastFrame: -1,
+          frameDurationMs: 1000 / REPLAY_FPS,
+        };
+        state.currentUser = data.replay?.default_participant_id || data.replayParticipants[0]?.user_id || '';
+        const tick = now => {
+          const frame = Math.floor((now - state.replay.startedAt) / state.replay.frameDurationMs);
+          if (frame !== state.replay.lastFrame) {
+            state.replay.lastFrame = frame;
+            updateReplayFrame(now);
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      } catch (error) {
+        console.error('replay init failed', error);
+        el.statusPills.innerHTML = [pill('Replay failed', 'bad')].join('');
+        el.users.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
