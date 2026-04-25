@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deepfake Dashboard Replay</title>
+  <style>
+    :root {
+      --bg: #08111d;
+      --panel: rgba(15, 29, 49, .94);
+      --panel-soft: rgba(255, 255, 255, .045);
+      --line: rgba(154, 180, 212, .18);
+      --text: #edf6ff;
+      --muted: #96a9c2;
+      --blue: #59b7ff;
+      --green: #4fe0b7;
+      --red: #ff667d;
+      --amber: #ffb25b;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 24px;
+      color: var(--text);
+      font-family: "Bahnschrift", "Segoe UI Variable Display", Aptos, "Segoe UI", sans-serif;
+      background:
+        linear-gradient(140deg, rgba(89, 183, 255, .14), transparent 32%),
+        linear-gradient(210deg, rgba(79, 224, 183, .12), transparent 28%),
+        linear-gradient(180deg, #08111d 0%, #0a1422 100%);
+      overflow: hidden;
+    }
+
+    .shell {
+      width: min(1500px, calc(100vw - 48px));
+      height: calc(100vh - 48px);
+      margin: 0 auto;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 16px;
+    }
+
+    .hero, .panel, .metric, .participant {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: 0 22px 60px rgba(0, 0, 0, .28);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 18px;
+      padding: 22px;
+      border-radius: 18px;
+    }
+
+    .title-block { min-width: 0; }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .07);
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 18px rgba(79, 224, 183, .9);
+    }
+
+    h1 {
+      margin: 12px 0 0;
+      font-size: clamp(34px, 4vw, 56px);
+      line-height: .96;
+      letter-spacing: 0;
+    }
+
+    .subline {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      min-height: 112px;
+      padding: 15px;
+      border-radius: 14px;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      margin-top: 8px;
+      font-size: clamp(24px, 3.2vw, 38px);
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .metric-note {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.3;
+    }
+
+    .main {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(330px, .78fr);
+      gap: 16px;
+    }
+
+    .panel {
+      min-height: 0;
+      padding: 20px;
+      border-radius: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: flex-start;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+
+    .copy {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 7px 11px;
+      border: 1px solid rgba(255, 255, 255, .12);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .06);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .pill.good { color: var(--green); }
+    .pill.warn { color: var(--amber); }
+    .pill.bad { color: var(--red); }
+
+    .chart-wrap {
+      min-height: 0;
+      flex: 1;
+      border: 1px solid rgba(255, 255, 255, .10);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, .025);
+      padding: 12px;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .legend {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .swatch {
+      width: 22px;
+      height: 4px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+
+    .side-stack {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .participant {
+      padding: 16px;
+      border-radius: 14px;
+    }
+
+    .row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .name {
+      font-size: 17px;
+      font-weight: 800;
+    }
+
+    .meta {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .bar {
+      height: 10px;
+      margin-top: 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .10);
+      overflow: hidden;
+    }
+
+    .bar > div {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--green), var(--blue), var(--red));
+    }
+
+    .detail-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .detail {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 9px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, .08);
+      font-size: 14px;
+    }
+
+    .detail:last-child { border-bottom: 0; }
+    .detail b { font-weight: 800; text-align: right; }
+    .detail span { color: var(--muted); }
+
+    .feed {
+      display: grid;
+      gap: 10px;
+    }
+
+    .feed-item {
+      display: grid;
+      grid-template-columns: 82px minmax(0, 1fr);
+      gap: 10px;
+      padding: 10px;
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 12px;
+      background: var(--panel-soft);
+    }
+
+    .feed-time {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .feed-main {
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.35;
+    }
+
+    .footer {
+      color: var(--muted);
+      text-align: center;
+      font-size: 12px;
+    }
+
+    @media (max-width: 1100px) {
+      body { overflow: auto; }
+      .shell { height: auto; }
+      .hero, .main, .metric-grid { grid-template-columns: 1fr; }
+      .chart-wrap { height: 420px; flex: none; }
+      .pill-row { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="title-block">
+        <div class="eyebrow"><span class="dot"></span>Real Replay Trace</div>
+        <h1>Deepfake Ops Deck</h1>
+        <div class="subline" id="sourceLine">Loading replay data...</div>
+      </div>
+      <div class="metric-grid">
+        <div class="metric">
+          <div class="metric-label">Current Signal</div>
+          <div class="metric-value" id="currentScore">--</div>
+          <div class="metric-note" id="currentNote">--</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Smoothed Signal</div>
+          <div class="metric-value" id="smoothScore">--</div>
+          <div class="metric-note">Recorded smoothing from live run</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Replay Rate</div>
+          <div class="metric-value">30fps</div>
+          <div class="metric-note" id="sampleNote">--</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Threshold</div>
+          <div class="metric-value" id="thresholdValue">--</div>
+          <div class="metric-note" id="thresholdNote">--</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="main">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Signal Timeline</h2>
+            <p class="copy">Display score and smoothed score from a recorded live prediction trace.</p>
+          </div>
+          <div class="pill-row" id="statusPills"></div>
+        </div>
+        <div class="chart-wrap"><canvas id="timeline"></canvas></div>
+        <div class="legend">
+          <span><i class="swatch" style="background: var(--blue);"></i>Display score</span>
+          <span><i class="swatch" style="background: var(--green);"></i>Smoothed</span>
+          <span><i class="swatch" style="background: var(--red);"></i>Threshold</span>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <div>
+          <h2 class="panel-title">Participant</h2>
+          <p class="copy">Replay stream used for the screencast dashboard.</p>
+        </div>
+        <div class="participant">
+          <div class="row">
+            <div>
+              <div class="name" id="participantName">bot_capture_01</div>
+              <div class="meta" id="participantMeta">--</div>
+            </div>
+            <span class="pill" id="riskBadge">--</span>
+          </div>
+          <div class="bar"><div id="scoreBar"></div></div>
+          <div class="meta" id="participantSub">--</div>
+        </div>
+        <div class="detail-list" id="details"></div>
+        <div>
+          <h2 class="panel-title">Automation Feed</h2>
+          <div class="feed" id="feed"></div>
+        </div>
+      </aside>
+    </section>
+
+    <div class="footer">Standalone screencast replay. No live server or network calls required.</div>
+  </main>
+
+  <script src="dashboard_replay_real.js"></script>
+  <script>
+    const $ = id => document.getElementById(id);
+    const pct = value => Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '--';
+    const clamp01 = value => Math.max(0, Math.min(1, value));
+    const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+
+    const state = {
+      replay: null,
+      startedAt: 0,
+      lastFrame: -1,
+      frameDurationMs: 1000 / 30,
+    };
+
+    async function loadReplay() {
+      if (window.location.protocol !== 'file:') {
+        try {
+          const response = await fetch('dashboard_replay_real.json', { cache: 'no-store' });
+          if (response.ok) return response.json();
+        } catch (error) {
+          console.warn('JSON fetch failed, using local script mirror', error);
+        }
+      }
+      if (window.DASHBOARD_REPLAY_DATA) return window.DASHBOARD_REPLAY_DATA;
+      throw new Error('Missing dashboard replay data');
+    }
+
+    function interpolate(samples, t, key) {
+      if (!samples.length) return 0;
+      const duration = state.replay.replay.duration_s;
+      const localT = ((t % duration) + duration) % duration;
+      let lo = 0;
+      let hi = samples.length - 1;
+      while (lo < hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (samples[mid].relative_time_s < localT) lo = mid + 1;
+        else hi = mid;
+      }
+      const right = samples[lo];
+      const left = samples[Math.max(0, lo - 1)];
+      if (!left || !right || right.relative_time_s === left.relative_time_s) return right[key];
+      const f = (localT - left.relative_time_s) / (right.relative_time_s - left.relative_time_s);
+      return left[key] + (right[key] - left[key]) * clamp01(f);
+    }
+
+    function currentSample(samples, t) {
+      const duration = state.replay.replay.duration_s;
+      const localT = ((t % duration) + duration) % duration;
+      let best = samples[0];
+      for (const sample of samples) {
+        if (sample.relative_time_s <= localT) best = sample;
+        else break;
+      }
+      return best;
+    }
+
+    function statusClass(score, threshold) {
+      if (score >= threshold) return 'bad';
+      if (score >= threshold * .75) return 'warn';
+      return 'good';
+    }
+
+    function renderStatic(data) {
+      const replay = data.replay;
+      const source = data.source_run;
+      $('sourceLine').textContent = `${replay.backend_name} replay from ${source.run_id}`;
+      $('sampleNote').textContent = `${replay.sample_count} recorded samples over ${replay.duration_s.toFixed(0)}s`;
+      $('thresholdValue').textContent = pct(replay.threshold);
+      $('thresholdNote').textContent = `${replay.selected_policy} • ${replay.polarity} polarity`;
+      $('participantName').textContent = replay.participant_name || 'bot_capture_01';
+      $('participantMeta').textContent = `${replay.topic} • ${source.split} ${source.kind}`;
+      $('participantSub').textContent = `${replay.backend_key} • frames ${replay.frame_count_start} to ${replay.frame_count_end}`;
+      $('statusPills').innerHTML = [
+        `<span class="pill good">Replay active</span>`,
+        `<span class="pill">${escapeHtml(replay.backend_key)}</span>`,
+        `<span class="pill">${escapeHtml(source.session_name)}</span>`,
+        `<span class="pill">Samples ${replay.sample_count}</span>`
+      ].join('');
+      $('details').innerHTML = [
+        ['Source run', source.run_id],
+        ['Session', source.session_name],
+        ['Backend', replay.backend_name],
+        ['Threshold', `${pct(replay.threshold)} (${replay.polarity})`],
+        ['Peak display score', pct(data.summary.max_display_score)],
+        ['Above threshold', pct(data.summary.above_threshold_ratio)],
+        ['Loop duration', `${replay.duration_s.toFixed(0)}s`],
+      ].map(([label, value]) => `<div class="detail"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join('');
+      $('feed').innerHTML = [
+        ['00:00', 'Replay trace loaded from recorded prediction CSV'],
+        ['00:04', `${replay.backend_name} dashboard threshold ${pct(replay.threshold)}`],
+        ['00:12', 'Score stream enters high-variance section'],
+        ['00:21', `Peak display score reaches ${pct(data.summary.max_display_score)}`],
+      ].map(([time, text]) => `<div class="feed-item"><div class="feed-time">${time}</div><div class="feed-main">${escapeHtml(text)}</div></div>`).join('');
+    }
+
+    function drawTimeline(nowS, current, smooth) {
+      const canvas = $('timeline');
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const width = Math.max(640, Math.floor(rect.width * dpr));
+      const height = Math.max(360, Math.floor(rect.height * dpr));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      ctx.scale(dpr, dpr);
+
+      const W = width / dpr;
+      const H = height / dpr;
+      const pad = { left: 46, right: 18, top: 20, bottom: 34 };
+      const cw = W - pad.left - pad.right;
+      const ch = H - pad.top - pad.bottom;
+      const samples = state.replay.samples;
+      const duration = state.replay.replay.duration_s;
+      const threshold = state.replay.replay.threshold;
+      const x = t => pad.left + (t / duration) * cw;
+      const y = p => pad.top + (1 - p) * ch;
+
+      ctx.fillStyle = 'rgba(255, 102, 125, .08)';
+      ctx.fillRect(pad.left, pad.top, cw, ch * (1 - threshold));
+      ctx.strokeStyle = 'rgba(154, 180, 212, .14)';
+      ctx.lineWidth = 1;
+      ctx.font = '12px Bahnschrift, Segoe UI, sans-serif';
+      ctx.fillStyle = 'rgba(150, 169, 194, .95)';
+      for (let i = 0; i <= 4; i += 1) {
+        const gy = pad.top + (ch / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, gy);
+        ctx.lineTo(pad.left + cw, gy);
+        ctx.stroke();
+        ctx.fillText((1 - i / 4).toFixed(2), 9, gy + 4);
+      }
+
+      ctx.strokeStyle = 'rgba(255, 102, 125, .95)';
+      ctx.setLineDash([8, 6]);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y(threshold));
+      ctx.lineTo(pad.left + cw, y(threshold));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      drawPath(ctx, samples, 'display_score', x, y, 'rgba(89, 183, 255, .38)', 1.4);
+      drawPath(ctx, samples, 'smoothed_score', x, y, 'rgba(79, 224, 183, .55)', 2.2);
+
+      const playX = x(nowS % duration);
+      ctx.strokeStyle = 'rgba(237, 246, 255, .75)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(playX, pad.top);
+      ctx.lineTo(playX, pad.top + ch);
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(89, 183, 255, .98)';
+      ctx.beginPath();
+      ctx.arc(playX, y(current), 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(79, 224, 183, .98)';
+      ctx.beginPath();
+      ctx.arc(playX, y(smooth), 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(150, 169, 194, .95)';
+      for (let i = 0; i <= 6; i += 1) {
+        const t = duration * (i / 6);
+        ctx.fillText(`${Math.round(t)}s`, x(t) - 10, H - 11);
+      }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+
+    function drawPath(ctx, samples, key, x, y, color, lineWidth) {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.beginPath();
+      samples.forEach((sample, index) => {
+        const px = x(sample.relative_time_s);
+        const py = y(sample[key]);
+        if (index === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function tick(now) {
+      if (!state.replay) return;
+      if (!state.startedAt) state.startedAt = now;
+      const frame = Math.floor((now - state.startedAt) / state.frameDurationMs);
+      if (frame !== state.lastFrame) {
+        state.lastFrame = frame;
+        const t = (frame / 30) % state.replay.replay.duration_s;
+        const current = interpolate(state.replay.samples, t, 'display_score');
+        const smooth = interpolate(state.replay.samples, t, 'smoothed_score');
+        const sample = currentSample(state.replay.samples, t);
+        const threshold = state.replay.replay.threshold;
+        const klass = statusClass(current, threshold);
+
+        $('currentScore').textContent = pct(current);
+        $('smoothScore').textContent = pct(smooth);
+        $('currentNote').textContent = `${sample.gt_label} label • sample ${sample.sample_index}`;
+        $('riskBadge').className = `pill ${klass}`;
+        $('riskBadge').textContent = current >= threshold ? 'above threshold' : 'below threshold';
+        $('scoreBar').style.width = `${Math.round(clamp01(current) * 100)}%`;
+        drawTimeline(t, current, smooth);
+      }
+      requestAnimationFrame(tick);
+    }
+
+    loadReplay()
+      .then(data => {
+        state.replay = data;
+        renderStatic(data);
+        requestAnimationFrame(tick);
+      })
+      .catch(error => {
+        $('sourceLine').textContent = `Replay data failed to load: ${error.message}`;
+        console.error(error);
+      });
+
+    window.addEventListener('resize', () => {
+      if (!state.replay) return;
+      const t = (state.lastFrame / 30) % state.replay.replay.duration_s;
+      drawTimeline(t, interpolate(state.replay.samples, t, 'display_score'), interpolate(state.replay.samples, t, 'smoothed_score'));
+    });
+  </script>
+</body>
+</html>
