@@ -1,0 +1,3 @@
+/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/build/CMakeFiles/zoom_v-sdk_linux_bot.dir
+/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/build/CMakeFiles/edit_cache.dir
+/Users/abx/Desktop/Y3 Project/repo/videosdk-linux-raw-recording-sample/build/CMakeFiles/rebuild_cache.dir

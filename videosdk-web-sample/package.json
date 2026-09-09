@@ -1,0 +1,87 @@
+{
+  "name": "react-video-sdk-demo",
+  "version": "2.3.0",
+  "private": true,
+  "dependencies": {
+    "@ant-design/icons": "4.7.0",
+    "@testing-library/jest-dom": "^5.11.9",
+    "@testing-library/react": "^11.2.5",
+    "@testing-library/user-event": "^12.8.3",
+    "@zoom/videosdk": "2.3.0",
+    "antd": "^4.24.3",
+    "classnames": "^2.2.6",
+    "crypto-js": "^4.0.0",
+    "immer": "^9.0.6",
+    "js-base64": "^3.6.0",
+    "jsrsasign": "^11.0.0",
+    "lodash": "^4.17.21",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-draggable": "^4.4.3",
+    "react-router": "^7.5.3",
+    "uuid": "^9.0.1",
+    "web-vitals": "1.1.1"
+  },
+  "scripts": {
+    "start": "vite",
+    "build": "vite build",
+    "test": "vitest",
+    "trace-error": "tsc --traceResolution"
+  },
+  "eslintConfig": {
+    "extends": [
+      "eslint-config-alloy/react"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
+    "@types/classnames": "^2.2.11",
+    "@types/crypto-js": "^4.0.1",
+    "@types/jest": "^26.0.21",
+    "@types/jsrsasign": "^8.0.10",
+    "@types/lodash": "^4.14.168",
+    "@types/node": "^24.0.10",
+    "@types/react": "18.2.52",
+    "@types/react-dom": "18.2.18",
+    "@types/react-router-dom": "^5.3.3",
+    "@types/uuid": "^9.0.7",
+    "@typescript-eslint/eslint-plugin": "^5.62.0",
+    "@typescript-eslint/parser": "^5.62.0",
+    "@vitejs/plugin-react": "^4.6.0",
+    "@vitest/ui": "^3.2.4",
+    "eslint-config-alloy": "^5.1.2",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "glob": "^11.0.3",
+    "jsdom": "^26.1.0",
+    "nth-check": "^2.1.1",
+    "prettier": "^3.3.3",
+    "sass": "^1.89.2",
+    "typescript": "^5.5.4",
+    "vite": "^7.0.2",
+    "vite-plugin-eslint": "^1.8.1",
+    "vite-plugin-svgr": "^4.3.0",
+    "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "nth-check": "$nth-check",
+    "postcss": "^8.4.38",
+    "eslint-config-alloy": {
+      "vue-eslint-parser": "^10"
+    }
+  }
+}
