@@ -5,64 +5,110 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Deepfake detection demo</title>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 20px auto; max-width: 1000px; padding: 0 16px; color: #111; background: #fff; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  #status { color: #555; margin: 0 0 14px; min-height: 1.3em; }
-  .feeds { display: flex; gap: 16px; flex-wrap: wrap; }
-  .feed { flex: 1 1 320px; min-width: 0; }
-  .feed h2 { font-size: 15px; margin: 0 0 6px; }
-  .feed canvas { width: 100%; display: block; background: #000; transform: scaleX(-1); }
-  .result { margin-top: 8px; padding: 8px 10px; border: 2px solid #bbb; font-weight: 600; }
-  .result.real { border-color: #1a7f37; color: #1a7f37; }
-  .result.fake { border-color: #c62828; color: #c62828; background: #fdecea; }
-  .result small { display: block; font-weight: 400; color: #555; }
-  .controls { margin: 16px 0; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-  button { font: inherit; padding: 6px 12px; cursor: pointer; }
-  #chart { width: 100%; height: 140px; border: 1px solid #ccc; display: block; }
-  .legend { font-size: 13px; color: #555; margin: 4px 0 0; }
-  .note { font-size: 13px; color: #555; margin-top: 14px; }
+  :root {
+    --bg: #0a0c10; --card: #12151c; --line: #222733; --text: #e8ebf1; --muted: #8b93a3;
+    --green: #3ddc84; --red: #ff5a5f; --accent: #6c8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 1080px; margin: 0 auto; padding: 28px 20px 40px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; margin: 0; }
+  .status { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 13px; }
+  .status i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .status.live i { background: var(--green); box-shadow: 0 0 0 4px rgba(61, 220, 132, .15); }
+  .status.warn i { background: #ffb020; }
+
+  .feeds { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }
+  .view { position: relative; border-radius: 10px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
+  .view canvas { width: 100%; height: 100%; display: block; object-fit: cover; transform: scaleX(-1); }
+  .tag { position: absolute; top: 10px; left: 10px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: rgba(10, 12, 16, .7); backdrop-filter: blur(8px); }
+
+  .score { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 14px 2px 8px; }
+  .verdict { font-weight: 600; color: var(--muted); }
+  .pct { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 6px; letter-spacing: 0; }
+  .bar { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--muted); transition: width .15s linear, background .2s; }
+  .card.real .verdict, .card.real .pct { color: var(--green); }
+  .card.real .bar i { background: var(--green); }
+  .card.fake { border-color: rgba(255, 90, 95, .55); box-shadow: 0 0 0 4px rgba(255, 90, 95, .08); }
+  .card.fake .verdict, .card.fake .pct { color: var(--red); }
+  .card.fake .bar i { background: var(--red); }
+
+  .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
+  .controls .label { color: var(--muted); font-size: 13px; margin-right: 2px; }
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; }
+  .presets button { width: 46px; height: 46px; padding: 0; border-radius: 50%; overflow: hidden; border: 2px solid var(--line); background: #000; }
+  .presets img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  button.active, .presets button.active { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(108, 140, 255, .25); }
+  .detail { color: var(--muted); font-size: 12px; margin: 8px 2px 0; min-height: 1.5em; }
+  button { font: inherit; font-size: 14px; font-weight: 550; color: var(--text); background: #1b2030; border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; cursor: pointer; transition: background .15s, border-color .15s; }
+  button:hover:not(:disabled) { background: #232a3d; border-color: #33405c; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #0a0c10; }
+  button.primary:hover:not(:disabled) { background: #85a0ff; border-color: #85a0ff; }
+  button:disabled { opacity: .45; cursor: default; }
+  #donorLabel { color: var(--muted); font-size: 13px; }
+
+  .chart h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 10px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  .chart h2 span { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+  .chart h2 span::before { content: ""; width: 10px; height: 3px; border-radius: 2px; background: currentColor; }
+  #chart { width: 100%; height: 130px; display: block; }
+  .note { color: var(--muted); font-size: 13px; margin: 16px 2px 0; }
 </style>
 </head>
 <body>
-<h1>Deepfake detection demo</h1>
-<p id="status">Loading…</p>
+<main>
+  <header>
+    <h1>Deepfake detection demo</h1>
+    <div class="status" id="statusChip"><i></i><span id="status">Loading…</span></div>
+  </header>
 
-<div class="feeds">
-  <div class="feed">
-    <h2>Original camera</h2>
-    <canvas id="realCanvas" width="640" height="480"></canvas>
-    <div class="result" id="realResult">—</div>
+  <div class="feeds">
+    <section class="card" id="realCard">
+      <div class="view"><canvas id="realCanvas" width="640" height="480"></canvas><span class="tag">Original camera</span></div>
+      <div class="score"><span class="verdict">Waiting…</span><span class="pct">–</span></div>
+      <div class="bar"><i></i></div>
+      <div class="detail"></div>
+    </section>
+    <section class="card" id="fakeCard">
+      <div class="view"><canvas id="fakeCanvas" width="640" height="480"></canvas><span class="tag">Deepfake</span></div>
+      <div class="score"><span class="verdict">Waiting…</span><span class="pct">–</span></div>
+      <div class="bar"><i></i></div>
+      <div class="detail"></div>
+    </section>
   </div>
-  <div class="feed">
-    <h2>Deepfake (face swapped)</h2>
-    <canvas id="fakeCanvas" width="640" height="480"></canvas>
-    <div class="result" id="fakeResult">—</div>
+
+  <div class="controls">
+    <span class="label">Swap in</span>
+    <div class="presets" id="presets"></div>
+    <button id="snapBtn" disabled>My own face</button>
+    <button id="photoBtn" disabled>Upload photo</button>
+    <input id="photoInput" type="file" accept="image/*" hidden>
+    <span id="donorLabel"></span>
   </div>
-</div>
 
-<div class="controls">
-  <span>Face used for the deepfake:</span>
-  <button id="snapBtn" disabled>Capture my face</button>
-  <button id="photoBtn" disabled>Use a photo…</button>
-  <input id="photoInput" type="file" accept="image/*" hidden>
-  <span id="donorLabel"></span>
-</div>
+  <section class="card chart">
+    <h2>Fake probability <span style="color:var(--green)">original</span><span style="color:var(--red)">deepfake</span><span style="color:var(--muted)">alert threshold 70%</span></h2>
+    <canvas id="chart"></canvas>
+  </section>
 
-<canvas id="chart" width="1000" height="140"></canvas>
-<p class="legend">Fake probability over time — <span style="color:#1a7f37">■ original</span> <span style="color:#c62828">■ deepfake</span> · dashed line = alert threshold (70%)</p>
-
-<p class="note">
-  Everything runs locally in this browser tab; no video leaves your machine.
-  The detector here is a simple stand-in for the project's model: it compares frame-to-frame
-  noise on the face with noise in the background. A pasted-on face has none of the camera's
-  natural flicker, so it scores as fake.
-</p>
+  <p class="note">
+    Runs entirely in this browser tab; no video leaves your machine. The detector is a simple stand-in for the
+    project's model: it learns your camera's natural frame-to-frame noise from the original feed, then flags a face
+    that is much cleaner than that. Preset faces are synthetic (people who do not exist), from the SFHQ dataset.
+  </p>
+</main>
 
 <video id="video" playsinline muted hidden></video>
 
 <script type="module">
 import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
-import Delaunator from 'https://cdn.jsdelivr.net/npm/delaunator@5.0.1/+esm';
 
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
@@ -72,190 +118,372 @@ const SMOOTHING_WINDOW = 15;
 const ALERT_THRESHOLD = 0.7;
 
 const N_LM = 468; // face mesh points (iris points are ignored)
-const FACE_OVAL = [10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
-const INNER_LIPS = new Set([78,95,88,178,87,14,317,402,318,324,308,415,310,311,312,13,82,81,80,191]);
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
 const realCanvas = $('realCanvas'), fakeCanvas = $('fakeCanvas');
 const realCtx = realCanvas.getContext('2d', { willReadFrequently: true });
 const fakeCtx = fakeCanvas.getContext('2d', { willReadFrequently: true });
-const setStatus = (t) => { $('status').textContent = t; };
+function setStatus(text, kind = '') { $('status').textContent = text; $('statusChip').className = 'status ' + kind; }
 
-/* ---------- face mesh helpers ---------- */
+/* ---------- face mesh ---------- */
 
-// Triangulate one set of landmarks. Returns triangle indices plus a per-point
-// edge flag (points on the outline of the face).
-function buildMesh(lm, w, h) {
-  const coords = new Float64Array(N_LM * 2);
-  for (let i = 0; i < N_LM; i++) { coords[2 * i] = lm[i].x * w; coords[2 * i + 1] = lm[i].y * h; }
-  const d = new Delaunator(coords);
+// MediaPipe's standard face triangulation. It has openings for the eyes and
+// the mouth, so the real eyes and mouth stay visible through the swap.
+// `edge` marks points on any outline (face, eyes, lips) where the swap fades out.
+const MESH = (() => {
+  const c = FaceLandmarker.FACE_LANDMARKS_TESSELATION, tris = [], count = new Map();
+  for (let i = 0; i + 2 < c.length; i += 3) {
+    const t = [c[i].start, c[i + 1].start, c[i + 2].start];
+    tris.push(...t);
+    for (let k = 0; k < 3; k++) {
+      const a = t[k], b = t[(k + 1) % 3], key = Math.min(a, b) * 1000 + Math.max(a, b);
+      count.set(key, (count.get(key) || 0) + 1);
+    }
+  }
   const edge = new Uint8Array(N_LM);
-  for (const i of d.hull) edge[i] = 1;
-  for (const i of FACE_OVAL) edge[i] = 1;
-  const tris = [];
-  for (let t = 0; t < d.triangles.length; t += 3) {
-    const a = d.triangles[t], b = d.triangles[t + 1], c = d.triangles[t + 2];
-    if (INNER_LIPS.has(a) && INNER_LIPS.has(b) && INNER_LIPS.has(c)) continue; // keep the real mouth opening
-    tris.push(a, b, c);
+  for (const [key, n] of count) if (n === 1) { edge[Math.floor(key / 1000)] = 1; edge[key % 1000] = 1; }
+  // Triangles well inside the face (not touching an outline, nor next to one): used by the detector.
+  const near = Uint8Array.from(edge);
+  for (let t = 0; t < tris.length; t += 3) if (edge[tris[t]] || edge[tris[t + 1]] || edge[tris[t + 2]]) near[tris[t]] = near[tris[t + 1]] = near[tris[t + 2]] = 1;
+  const inner = [];
+  for (let t = 0; t < tris.length; t += 3) if (!near[tris[t]] && !near[tris[t + 1]] && !near[tris[t + 2]]) inner.push(tris[t], tris[t + 1], tris[t + 2]);
+  return { tris: new Uint16Array(tris), edge, inner };
+})();
+
+// Steady the tracked points: tiny jitters are smoothed away, real movement passes through.
+let smooth = null;
+function smoothLandmarks(lm, w, h) {
+  if (!smooth) { smooth = Array.from({ length: N_LM }, (_, i) => ({ x: lm[i].x, y: lm[i].y, z: lm[i].z })); return smooth; }
+  for (let i = 0; i < N_LM; i++) {
+    const s = smooth[i], dx = (lm[i].x - s.x) * w, dy = (lm[i].y - s.y) * h;
+    const a = Math.min(1, 0.12 + Math.hypot(dx, dy) / 3);
+    s.x += (lm[i].x - s.x) * a; s.y += (lm[i].y - s.y) * a; s.z += (lm[i].z - s.z) * a;
   }
-  return { tris: new Uint16Array(tris), edge };
+  return smooth;
 }
 
-const luma = (d, i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-
-function sampleLuma(img, x, y) {
-  const w = img.width, h = img.height, d = img.data;
-  x = Math.min(Math.max(x, 0), w - 1.001); y = Math.min(Math.max(y, 0), h - 1.001);
-  const x0 = x | 0, y0 = y | 0, fx = x - x0, fy = y - y0, i = (y0 * w + x0) * 4;
-  return (luma(d, i) * (1 - fx) + luma(d, i + 4) * fx) * (1 - fy) +
-         (luma(d, i + w * 4) * (1 - fx) + luma(d, i + w * 4 + 4) * fx) * fy;
-}
-
-// Average colour of the face (sampled at the centre of each inner triangle).
-function meanFaceColor(img, lm, mesh) {
-  const w = img.width, h = img.height, d = img.data, s = [0, 0, 0];
-  let n = 0;
-  for (let t = 0; t < mesh.tris.length; t += 3) {
-    const a = mesh.tris[t], b = mesh.tris[t + 1], c = mesh.tris[t + 2];
-    if (mesh.edge[a] || mesh.edge[b] || mesh.edge[c]) continue;
-    const x = Math.round((lm[a].x + lm[b].x + lm[c].x) / 3 * w), y = Math.round((lm[a].y + lm[b].y + lm[c].y) / 3 * h);
-    if (x < 0 || y < 0 || x >= w || y >= h) continue;
-    const i = (y * w + x) * 4;
-    s[0] += d[i]; s[1] += d[i + 1]; s[2] += d[i + 2]; n++;
+function faceBox(lm) {
+  let minX = 1, maxX = 0, minY = 1, maxY = 0;
+  for (let i = 0; i < N_LM; i++) {
+    minX = Math.min(minX, lm[i].x); maxX = Math.max(maxX, lm[i].x);
+    minY = Math.min(minY, lm[i].y); maxY = Math.max(maxY, lm[i].y);
   }
-  return n ? s.map((v) => v / n + 1) : [128, 128, 128];
+  return { minX, maxX, minY, maxY };
 }
 
 /* ---------- the "deepfake": warp a donor face onto the live face ---------- */
+// 1. The donor face is drawn as a textured mesh that follows the live face.
+// 2. Its colouring is corrected to the live lighting: blurred versions of the
+//    live face and the warped donor are compared, and the donor is scaled by
+//    their ratio, so it picks up the room's light and the wearer's skin tone.
+// 3. It is blended into the camera frame with soft edges.
 
 const glCanvas = document.createElement('canvas');
-const gl = glCanvas.getContext('webgl2', { premultipliedAlpha: true, antialias: true });
-let prog, posBuf, uvBuf, alphaBuf, idxBuf, tex, uGain, triCount = 0;
-let donor = null; // { mesh, color }
-const gain = [1, 1, 1];
+const gl = glCanvas.getContext('webgl2', { premultipliedAlpha: true, antialias: false });
+const G = {}; // GL objects
+let hasDonor = false;
 
-function initGL() {
-  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
-  prog = gl.createProgram();
-  gl.attachShader(prog, sh(gl.VERTEX_SHADER, `#version 300 es
-    in vec2 aPos; in vec2 aUv; in float aAlpha; out vec2 vUv; out float vAlpha;
-    void main() { vUv = aUv; vAlpha = aAlpha; gl_Position = vec4(aPos.x * 2.0 - 1.0, 1.0 - aPos.y * 2.0, 0.0, 1.0); }`));
-  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, `#version 300 es
-    precision mediump float;
-    in vec2 vUv; in float vAlpha; uniform sampler2D uTex; uniform vec3 uGain; out vec4 o;
-    void main() { float a = smoothstep(0.0, 1.0, vAlpha); o = vec4(min(texture(uTex, vUv).rgb * uGain, 1.0) * a, a); }`));
-  gl.bindAttribLocation(prog, 0, 'aPos'); gl.bindAttribLocation(prog, 1, 'aUv'); gl.bindAttribLocation(prog, 2, 'aAlpha');
-  gl.linkProgram(prog);
-  gl.useProgram(prog);
-  uGain = gl.getUniformLocation(prog, 'uGain');
-  posBuf = gl.createBuffer(); uvBuf = gl.createBuffer(); alphaBuf = gl.createBuffer(); idxBuf = gl.createBuffer();
-  tex = gl.createTexture();
-  [[posBuf, 0, 2], [uvBuf, 1, 2], [alphaBuf, 2, 1]].forEach(([buf, loc, size]) => {
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
-  });
-  gl.clearColor(0, 0, 0, 0);
+const VS_QUAD = `#version 300 es
+  out vec2 vUv;
+  void main() { vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0); vUv = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }`;
+
+function program(vs, fs, attribs = []) {
+  const p = gl.createProgram();
+  for (const [type, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, '#version 300 es\nprecision highp float;\n' + fs]]) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    gl.attachShader(p, s);
+  }
+  attribs.forEach((name, i) => gl.bindAttribLocation(p, i, name));
+  gl.linkProgram(p);
+  const u = {};
+  for (let i = 0; i < gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i++) { const n = gl.getActiveUniform(p, i).name; u[n] = gl.getUniformLocation(p, n); }
+  return { p, u };
 }
 
-// Use `source` (a canvas holding a face) with landmarks `lm` as the face to paste on.
-function setDonor(source, lm, label) {
-  const mesh = buildMesh(lm, source.width, source.height);
-  const uv = new Float32Array(N_LM * 2), alpha = new Float32Array(N_LM);
-  for (let i = 0; i < N_LM; i++) { uv[2 * i] = lm[i].x; uv[2 * i + 1] = lm[i].y; alpha[i] = mesh.edge[i] ? 0 : 1; }
-  gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf); gl.bufferData(gl.ARRAY_BUFFER, uv, gl.STATIC_DRAW);
-  gl.bindBuffer(gl.ARRAY_BUFFER, alphaBuf); gl.bufferData(gl.ARRAY_BUFFER, alpha, gl.STATIC_DRAW);
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.tris, gl.STATIC_DRAW);
-  triCount = mesh.tris.length;
+function target(w, h, mip, depth) {
+  const tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
-  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mip ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  if (depth) {
+    const rb = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
+  }
+  return { tex, fbo, w, h };
+}
+
+function imageTexture() {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  const img = source.getContext('2d').getImageData(0, 0, source.width, source.height);
-  donor = { mesh, color: meanFaceColor(img, lm, mesh) };
-  gain.fill(1);
-  $('donorLabel').textContent = label;
+  return tex;
 }
 
-const posArr = new Float32Array(N_LM * 2);
-function renderSwap(lm, liveColor) {
-  // Match the donor's skin tone to the live lighting.
-  for (let k = 0; k < 3; k++) {
-    const target = Math.min(Math.max(liveColor[k] / donor.color[k], 0.6), 1.7);
-    gain[k] += (target - gain[k]) * 0.05;
+function initGL(w, h) {
+  glCanvas.width = w; glCanvas.height = h;
+  G.mesh = program(`#version 300 es
+    in vec3 aPos; in vec2 aUv; in float aAlpha; out vec2 vUv; out float vAlpha;
+    void main() { vUv = aUv; vAlpha = aAlpha; gl_Position = vec4(aPos.x * 2.0 - 1.0, 1.0 - aPos.y * 2.0, clamp(aPos.z * 3.0, -0.99, 0.99), 1.0); }`,
+    `in vec2 vUv; in float vAlpha; uniform sampler2D uTex; out vec4 o;
+    void main() { float a = smoothstep(0.0, 1.0, vAlpha); o = vec4(texture(uTex, vUv).rgb * a, a); }`, ['aPos', 'aUv', 'aAlpha']);
+  // Shrink: mode 0 = warped donor, mode 1 = live frame cut to the same face shape.
+  G.down = program(VS_QUAD, `in vec2 vUv; uniform sampler2D uFace, uLive; uniform int uMode; out vec4 o;
+    void main() { vec4 f = texture(uFace, vUv); o = uMode == 0 ? f : vec4(texture(uLive, vec2(vUv.x, 1.0 - vUv.y)).rgb * f.a, f.a); }`);
+  G.blur = program(VS_QUAD, `in vec2 vUv; uniform sampler2D uTex; uniform vec2 uStep; out vec4 o;
+    void main() { vec4 s = vec4(0.0); float t = 0.0;
+      for (int i = -4; i <= 4; i++) { float x = float(i) * 0.5, w = exp(-0.5 * x * x); s += texture(uTex, vUv + uStep * float(i)) * w; t += w; }
+      o = s / t; }`);
+  G.mix = program(VS_QUAD, `in vec2 vUv; uniform sampler2D uPrev, uCur; uniform float uAmount; out vec4 o;
+    void main() { o = mix(texture(uPrev, vUv), texture(uCur, vUv), uAmount); }`);
+  G.final = program(VS_QUAD, `in vec2 vUv; uniform sampler2D uFace, uBlurFace, uBlurLive; out vec4 o;
+    void main() {
+      vec4 f = texture(uFace, vUv), bf = texture(uBlurFace, vUv), bl = texture(uBlurLive, vUv);
+      if (f.a < 0.004) { o = vec4(0.0); return; }
+      vec3 ratio = clamp((bl.rgb / max(bl.a, 0.02) + 0.01) / (bf.rgb / max(bf.a, 0.02) + 0.01), 0.5, 2.0);
+      vec3 col = min(f.rgb / f.a * ratio, 1.0);
+      float m = f.a * smoothstep(0.3, 0.7, bf.a);
+      o = vec4(col * m, m); }`);
+
+  G.meshVao = gl.createVertexArray();
+  gl.bindVertexArray(G.meshVao);
+  G.posBuf = gl.createBuffer(); G.uvBuf = gl.createBuffer(); G.alphaBuf = gl.createBuffer();
+  const idxBuf = gl.createBuffer();
+  [[G.posBuf, 0, 3], [G.uvBuf, 1, 2], [G.alphaBuf, 2, 1]].forEach(([buf, loc, size]) => {
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+  });
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, MESH.tris, gl.STATIC_DRAW);
+  G.quadVao = gl.createVertexArray();
+
+  G.donorTex = imageTexture(); G.liveTex = imageTexture();
+  G.face = target(w, h, true, true);
+  const sw = Math.round(w / 8), sh = Math.round(h / 8);
+  G.small = [0, 1, 2, 3].map(() => target(sw, sh, false, false)); // 0,1: donor blur; 2,3: live blur
+  G.liveAvg = [0, 1].map(() => target(sw, sh, false, false));      // live blur averaged over recent frames
+  G.liveAvgValid = false;
+  gl.clearColor(0, 0, 0, 0);
+}
+
+function bind(unit, tex) { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); }
+function drawTo(t, prog) {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, t ? t.fbo : null);
+  gl.viewport(0, 0, t ? t.w : glCanvas.width, t ? t.h : glCanvas.height);
+  gl.useProgram(prog.p);
+}
+
+// How strongly each donor point is used: 0 on outlines, and fading to 0 on the
+// side of the face that is turned away from the camera in the donor picture
+// (there is no usable texture there, so the live face shows instead).
+function donorAlpha(lm, w, h) {
+  const facing = new Float32Array(N_LM), n = new Float32Array(N_LM);
+  let sum = 0;
+  for (let t = 0; t < MESH.tris.length; t += 3) {
+    const [a, b, c] = [0, 1, 2].map((k) => lm[MESH.tris[t + k]]);
+    const ux = (b.x - a.x) * w, uy = (b.y - a.y) * h, uz = (b.z - a.z) * w;
+    const vx = (c.x - a.x) * w, vy = (c.y - a.y) * h, vz = (c.z - a.z) * w;
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const f = nz / (Math.hypot(nx, ny, nz) || 1);
+    sum += f;
+    for (let k = 0; k < 3; k++) { facing[MESH.tris[t + k]] += f; n[MESH.tris[t + k]]++; }
   }
-  for (let i = 0; i < N_LM; i++) { posArr[2 * i] = lm[i].x; posArr[2 * i + 1] = lm[i].y; }
-  gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+  const sign = Math.sign(sum) || 1;
+  return Float32Array.from(facing, (f, i) => MESH.edge[i] ? 0 : Math.min(1, Math.max(0, (f / (n[i] || 1) * sign - 0.2) / 0.3)));
+}
+
+// Use `source` (a canvas holding a face) with landmarks `lm` as the face to paste on.
+function setDonor(source, lm, activeEl, label = '') {
+  const uv = new Float32Array(N_LM * 2);
+  for (let i = 0; i < N_LM; i++) { uv[2 * i] = lm[i].x; uv[2 * i + 1] = lm[i].y; }
+  gl.bindBuffer(gl.ARRAY_BUFFER, G.uvBuf); gl.bufferData(gl.ARRAY_BUFFER, uv, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, G.alphaBuf); gl.bufferData(gl.ARRAY_BUFFER, donorAlpha(lm, source.width, source.height), gl.STATIC_DRAW);
+  bind(0, G.donorTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  hasDonor = true;
+  $('donorLabel').textContent = label;
+  for (const el of document.querySelectorAll('.controls button')) el.classList.toggle('active', el === activeEl);
+}
+
+// Built-in faces: synthetic people, with their face points precomputed in faces.json.
+const PRESETS = ['red', 'tan', 'blonde', 'young', 'dark', 'east', 'stubble', 'silver', 'moustache', 'elder'];
+let presetPoints = null;
+async function initPresets() {
+  presetPoints = await (await fetch('faces/faces.json')).json();
+  for (const name of PRESETS) {
+    const btn = document.createElement('button');
+    btn.title = 'Synthetic face'; btn.dataset.preset = name;
+    btn.innerHTML = `<img src="faces/${name}.jpg" alt="Synthetic face preset">`;
+    btn.onclick = () => selectPreset(name);
+    $('presets').append(btn);
+  }
+}
+async function selectPreset(name) {
+  const img = new Image();
+  img.src = `faces/${name}.jpg`;
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  c.getContext('2d').drawImage(img, 0, 0);
+  const p = presetPoints[name], lm = [];
+  for (let i = 0; i < N_LM; i++) lm.push({ x: p[3 * i], y: p[3 * i + 1], z: p[3 * i + 2] });
+  setDonor(c, lm, document.querySelector(`[data-preset="${name}"]`));
+}
+
+const posArr = new Float32Array(N_LM * 3);
+function renderSwap(lm, frame) {
+  for (let i = 0; i < N_LM; i++) { posArr[3 * i] = lm[i].x; posArr[3 * i + 1] = lm[i].y; posArr[3 * i + 2] = lm[i].z; }
+  const b = faceBox(lm);
+
+  // 1. warped donor face
+  drawTo(G.face, G.mesh);
+  gl.enable(gl.DEPTH_TEST);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.bindVertexArray(G.meshVao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, G.posBuf); gl.bufferData(gl.ARRAY_BUFFER, posArr, gl.DYNAMIC_DRAW);
+  bind(0, G.donorTex); gl.uniform1i(G.mesh.u.uTex, 0);
+  gl.drawElements(gl.TRIANGLES, MESH.tris.length, gl.UNSIGNED_SHORT, 0);
+  gl.disable(gl.DEPTH_TEST);
+  bind(0, G.face.tex); gl.generateMipmap(gl.TEXTURE_2D);
+
+  // 2. blurred donor and blurred live face
+  bind(1, G.liveTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, frame);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.bindVertexArray(G.quadVao);
+  const sigma = 0.1 * (b.maxX - b.minX); // blur size, as a fraction of frame width
+  for (const mode of [0, 1]) {
+    const a = G.small[mode * 2], c = G.small[mode * 2 + 1];
+    drawTo(a, G.down);
+    bind(0, G.face.tex); gl.uniform1i(G.down.u.uFace, 0); gl.uniform1i(G.down.u.uLive, 1); gl.uniform1i(G.down.u.uMode, mode);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    drawTo(c, G.blur); bind(0, a.tex); gl.uniform1i(G.blur.u.uTex, 0); gl.uniform2f(G.blur.u.uStep, sigma / 2, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    drawTo(a, G.blur); bind(0, c.tex); gl.uniform2f(G.blur.u.uStep, 0, sigma / 2 * (glCanvas.width / glCanvas.height));
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  // average the live lighting over a few frames so camera noise doesn't shimmer through
+  G.liveAvg.reverse();
+  drawTo(G.liveAvg[0], G.mix);
+  bind(0, G.liveAvg[1].tex); bind(1, G.small[2].tex);
+  gl.uniform1i(G.mix.u.uPrev, 0); gl.uniform1i(G.mix.u.uCur, 1); gl.uniform1f(G.mix.u.uAmount, G.liveAvgValid ? 0.3 : 1);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  G.liveAvgValid = true;
+
+  // 3. colour-corrected, soft-edged face on a transparent canvas
+  drawTo(null, G.final);
   gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, posArr, gl.DYNAMIC_DRAW);
-  gl.uniform3fv(uGain, gain);
-  gl.drawElements(gl.TRIANGLES, triCount, gl.UNSIGNED_SHORT, 0);
+  bind(0, G.face.tex); bind(1, G.small[0].tex); bind(2, G.liveAvg[0].tex);
+  gl.uniform1i(G.final.u.uFace, 0); gl.uniform1i(G.final.u.uBlurFace, 1); gl.uniform1i(G.final.u.uBlurLive, 2);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
 /* ---------- the detector ---------- */
 
-// Looks only at the pixels of one feed (plus where the face is). Each frame it
-// measures how much the face flickers from the previous frame, following the
-// face as it moves, and compares that with the flicker of the background.
-// Real camera footage has sensor noise everywhere; a pasted face is too clean.
-class Detector {
-  constructor() { this.reset(); }
-  reset() { this.prevFace = null; this.prevBg = null; this.window = []; this.prob = null; this.ratio = null; }
-
-  update(img, lm, mesh) {
-    const w = img.width, h = img.height;
-    // Face samples: centre of every inner triangle (moves with the face).
-    const face = [];
-    let minX = 1, maxX = 0, minY = 1, maxY = 0;
-    for (let i = 0; i < N_LM; i++) {
-      minX = Math.min(minX, lm[i].x); maxX = Math.max(maxX, lm[i].x);
-      minY = Math.min(minY, lm[i].y); maxY = Math.max(maxY, lm[i].y);
+const luma = (d, i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+// Fine detail at (x, y): the brightness at that exact spot minus the average
+// of its surroundings. Subtracting the surroundings removes lighting changes
+// and small tracking wobble, leaving mostly per-pixel camera noise.
+function sampleDetail(img, x, y) {
+  const w = img.width, h = img.height, d = img.data, R = 3;
+  x = Math.min(Math.max(x, R), w - R - 1.001); y = Math.min(Math.max(y, R), h - R - 1.001);
+  const x0 = Math.ceil(x - R), y0 = Math.ceil(y - R);
+  let sum = 0, total = 0;
+  for (let py = y0; py < y + R; py++) {
+    const wy = 1 - Math.abs(py - y) / R;
+    for (let px = x0; px < x + R; px++) {
+      const k = wy * (1 - Math.abs(px - x) / R);
+      sum += k * luma(d, (py * w + px) * 4); total += k;
     }
-    for (let t = 0; t < mesh.tris.length; t += 3) {
-      const a = mesh.tris[t], b = mesh.tris[t + 1], c = mesh.tris[t + 2];
-      if (mesh.edge[a] || mesh.edge[b] || mesh.edge[c]) continue;
-      face.push(sampleLuma(img, (lm[a].x + lm[b].x + lm[c].x) / 3 * w, (lm[a].y + lm[b].y + lm[c].y) / 3 * h));
-    }
-    // Background samples: fixed grid, skipping the area around the head.
-    const padX = (maxX - minX) * 0.45, padY = (maxY - minY) * 0.45;
-    const GX = 32, GY = 24, bg = new Float32Array(GX * GY);
-    for (let gy = 0; gy < GY; gy++) for (let gx = 0; gx < GX; gx++) {
-      const x = (gx + 0.5) / GX, y = (gy + 0.5) / GY;
-      const nearFace = x > minX - padX && x < maxX + padX && y > minY - padY;
-      bg[gy * GX + gx] = nearFace ? NaN : sampleLuma(img, x * w + 0.25, y * h + 0.25);
-    }
-
-    if (this.prevFace && this.prevFace.length === face.length) {
-      const fd = face.map((v, i) => Math.abs(v - this.prevFace[i]));
-      const bd = [];
-      for (let i = 0; i < bg.length; i++) { const v = Math.abs(bg[i] - this.prevBg[i]); if (!Number.isNaN(v)) bd.push(v); }
-      if (bd.length > 20) {
-        const r = (quietMean(fd) + 0.03) / (quietMean(bd) + 0.03);
-        this.window.push(r);
-        if (this.window.length > SMOOTHING_WINDOW) this.window.shift();
-        this.ratio = this.window.reduce((s, v) => s + v, 0) / this.window.length;
-        this.prob = 1 / (1 + Math.exp((this.ratio - 0.5) * 10));
-      }
-    }
-    this.prevFace = face; this.prevBg = bg;
   }
+  const xi = x | 0, yi = y | 0, fx = x - xi, fy = y - yi, i = (yi * w + xi) * 4;
+  const point = (luma(d, i) * (1 - fx) + luma(d, i + 4) * fx) * (1 - fy) + (luma(d, i + w * 4) * (1 - fx) + luma(d, i + w * 4 + 4) * fx) * fy;
+  return point - sum / total;
 }
 
-// Mean of the quietest 60% of values, so real movement doesn't dominate.
+// Mean of the quietest 30% of the values, so real movement and busy texture don't dominate.
 function quietMean(values) {
   const v = Array.from(values).sort((a, b) => a - b);
-  const n = Math.max(1, Math.floor(v.length * 0.6));
+  const n = Math.max(1, Math.floor(v.length * 0.3));
   let s = 0; for (let i = 0; i < n; i++) s += v[i];
   return s / n;
 }
 
-function showResult(el, det) {
-  if (det.prob == null) { el.className = 'result'; el.textContent = '—'; return; }
-  const fake = det.prob >= ALERT_THRESHOLD;
-  el.className = 'result ' + (fake ? 'fake' : 'real');
-  el.innerHTML = `${fake ? '⚠ DEEPFAKE DETECTED' : '✓ Looks real'} — fake probability ${(det.prob * 100).toFixed(0)}%` +
-    `<small>face / background noise ratio: ${det.ratio.toFixed(2)}</small>`;
+// What "real" looks like on this camera: the usual face-to-background flicker
+// level of the original feed (its 20th percentile over the last ~10 seconds).
+const camera = {
+  samples: [], baseline: null,
+  add(x) {
+    this.samples.push(x);
+    if (this.samples.length > 300) this.samples.shift();
+    if (this.samples.length >= 20) this.baseline = [...this.samples].sort((a, b) => a - b)[Math.floor(this.samples.length * 0.2)];
+  },
+};
+
+// Looks only at the pixels of one feed (plus where the face is). Each frame it
+// measures how much the face flickers from the previous frame, following the
+// face as it moves, relative to the flicker of the background. Real footage
+// carries the camera's sensor noise on the face; a pasted face is too clean,
+// so its level falls far below the camera's baseline.
+class Detector {
+  constructor() { this.reset(); }
+  reset() { this.prevFace = null; this.prevBg = null; this.window = []; this.prob = null; this.level = null; this.flicker = null; }
+
+  update(img, lm) {
+    const w = img.width, h = img.height, b = faceBox(lm), T = MESH.inner;
+    // Face samples: centre of every inner triangle (moves with the face).
+    const face = new Float32Array(T.length / 3);
+    for (let t = 0; t < T.length; t += 3) {
+      face[t / 3] = sampleDetail(img, (lm[T[t]].x + lm[T[t + 1]].x + lm[T[t + 2]].x) / 3 * w, (lm[T[t]].y + lm[T[t + 1]].y + lm[T[t + 2]].y) / 3 * h);
+    }
+    // Background samples: fixed grid, skipping the area around the head.
+    const padX = (b.maxX - b.minX) * 0.45, padY = (b.maxY - b.minY) * 0.45;
+    const GX = 32, GY = 24, bg = new Float32Array(GX * GY);
+    for (let gy = 0; gy < GY; gy++) for (let gx = 0; gx < GX; gx++) {
+      const x = (gx + 0.5) / GX, y = (gy + 0.5) / GY;
+      const nearFace = x > b.minX - padX && x < b.maxX + padX && y > b.minY - padY;
+      bg[gy * GX + gx] = nearFace ? NaN : sampleDetail(img, x * w + 0.25, y * h + 0.25);
+    }
+    this.flicker = null;
+    if (this.prevFace) {
+      const fd = face.map((v, i) => Math.abs(v - this.prevFace[i]));
+      const bd = [];
+      for (let i = 0; i < bg.length; i++) { const v = Math.abs(bg[i] - this.prevBg[i]); if (!Number.isNaN(v)) bd.push(v); }
+      if (bd.length > 20) this.flicker = (quietMean(fd) + 0.02) / (quietMean(bd) + 0.02);
+    }
+    this.prevFace = face; this.prevBg = bg;
+  }
+
+  // Compare against the camera's baseline and smooth over the last few frames.
+  score(baseline) {
+    if (this.flicker == null || baseline == null) return;
+    this.window.push(this.flicker / baseline);
+    if (this.window.length > SMOOTHING_WINDOW) this.window.shift();
+    this.level = this.window.reduce((s, v) => s + v, 0) / this.window.length;
+    this.prob = 1 / (1 + Math.exp((this.level - 0.72) * 14));
+  }
+}
+
+function showResult(card, det) {
+  const verdict = card.querySelector('.verdict'), pct = card.querySelector('.pct'), bar = card.querySelector('.bar i'), detail = card.querySelector('.detail');
+  if (det.prob == null) { card.className = 'card'; verdict.textContent = lastLm ? 'Calibrating…' : 'Waiting…'; pct.textContent = '–'; bar.style.width = '0'; detail.textContent = ''; return; }
+  const fake = det.prob >= ALERT_THRESHOLD, p = Math.round(det.prob * 100);
+  card.className = 'card ' + (fake ? 'fake' : 'real');
+  card.dataset.ratio = det.level.toFixed(2);
+  detail.textContent = `Face noise is ${det.level.toFixed(2)}× this camera's normal level`;
+  verdict.textContent = fake ? 'Deepfake detected' : 'Looks real';
+  pct.innerHTML = p + '%<small>fake</small>';
+  bar.style.width = p + '%';
 }
 
 /* ---------- chart ---------- */
@@ -263,31 +491,37 @@ function showResult(el, det) {
 const chart = $('chart'), chartCtx = chart.getContext('2d');
 const history = { real: [], fake: [] };
 function drawChart() {
-  const w = chart.width, h = chart.height, N = 300;
+  const dpr = window.devicePixelRatio || 1, w = chart.clientWidth, h = chart.clientHeight, N = 300;
+  if (chart.width !== Math.round(w * dpr)) { chart.width = Math.round(w * dpr); chart.height = Math.round(h * dpr); }
+  chartCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   chartCtx.clearRect(0, 0, w, h);
-  chartCtx.strokeStyle = '#999'; chartCtx.setLineDash([6, 6]); chartCtx.lineWidth = 1;
-  chartCtx.beginPath(); chartCtx.moveTo(0, h * (1 - ALERT_THRESHOLD)); chartCtx.lineTo(w, h * (1 - ALERT_THRESHOLD)); chartCtx.stroke();
-  chartCtx.setLineDash([]); chartCtx.lineWidth = 2;
-  for (const [key, color] of [['real', '#1a7f37'], ['fake', '#c62828']]) {
+  const yOf = (p) => 3 + (1 - p) * (h - 6);
+  chartCtx.strokeStyle = '#3a4152'; chartCtx.lineWidth = 1; chartCtx.setLineDash([4, 5]);
+  chartCtx.beginPath(); chartCtx.moveTo(0, yOf(ALERT_THRESHOLD)); chartCtx.lineTo(w, yOf(ALERT_THRESHOLD)); chartCtx.stroke();
+  chartCtx.setLineDash([]); chartCtx.lineWidth = 2; chartCtx.lineJoin = 'round';
+  for (const [key, color] of [['real', '#3ddc84'], ['fake', '#ff5a5f']]) {
     const pts = history[key];
     while (pts.length > N) pts.shift();
     chartCtx.strokeStyle = color; chartCtx.beginPath();
-    pts.forEach((p, i) => { const x = i / (N - 1) * w, y = 4 + (1 - p) * (h - 8); i ? chartCtx.lineTo(x, y) : chartCtx.moveTo(x, y); });
+    pts.forEach((p, i) => { const x = i / (N - 1) * w; i ? chartCtx.lineTo(x, yOf(p)) : chartCtx.moveTo(x, yOf(p)); });
     chartCtx.stroke();
   }
 }
 
 /* ---------- main loop ---------- */
 
-let landmarker, photoLandmarker, detMesh = null, lastLm = null, lastTime = -1;
+let landmarker, photoLandmarker, lastLm = null, lastTime = -1;
 const realDet = new Detector(), fakeDet = new Detector();
 
 function snapshotDonor() {
-  if (!lastLm) { setStatus('No face in view — look at the camera and try again.'); return; }
+  if (!lastLm) { setStatus('No face in view', 'warn'); return; }
   const c = document.createElement('canvas');
-  c.width = realCanvas.width; c.height = realCanvas.height;
-  c.getContext('2d').drawImage(realCanvas, 0, 0);
-  setDonor(c, lastLm, 'a frozen snapshot of your own face');
+  // Stored slightly reduced: this averages away the camera noise frozen into the still.
+  c.width = Math.round(realCanvas.width * 0.75); c.height = Math.round(realCanvas.height * 0.75);
+  const cx = c.getContext('2d');
+  cx.imageSmoothingQuality = 'high';
+  cx.drawImage(realCanvas, 0, 0, c.width, c.height);
+  setDonor(c, lastLm.map((p) => ({ ...p })), $('snapBtn'), 'A frozen snapshot of your own face');
 }
 
 async function photoDonor(file) {
@@ -295,12 +529,11 @@ async function photoDonor(file) {
   const scale = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
   const c = document.createElement('canvas');
   c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
-  c.getContext('2d', { willReadFrequently: true }).drawImage(bmp, 0, 0, c.width, c.height);
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
   photoLandmarker ??= await createLandmarker('IMAGE');
   const res = photoLandmarker.detect(c);
-  if (!res.faceLandmarks.length) { setStatus('No face found in that photo — try another one.'); return; }
-  setDonor(c, res.faceLandmarks[0], 'uploaded photo');
-  setStatus('Running.');
+  if (!res.faceLandmarks.length) { $('donorLabel').textContent = 'No face found in that photo, try another'; return; }
+  setDonor(c, res.faceLandmarks[0], $('photoBtn'), 'Face from your photo');
 }
 
 function frame() {
@@ -310,27 +543,27 @@ function frame() {
   const w = realCanvas.width, h = realCanvas.height;
 
   realCtx.drawImage(video, 0, 0, w, h);
-  const res = landmarker.detectForVideo(realCanvas, performance.now());
-  const lm = res.faceLandmarks[0] || null;
-  lastLm = lm;
-
+  const raw = landmarker.detectForVideo(realCanvas, performance.now()).faceLandmarks[0];
   fakeCtx.drawImage(realCanvas, 0, 0);
-  if (!lm) {
+  if (!raw) {
+    lastLm = smooth = null; G.liveAvgValid = false;
     realDet.reset(); fakeDet.reset();
-    showResult($('realResult'), realDet); showResult($('fakeResult'), fakeDet);
-    setStatus('No face detected — look at the camera.');
+    showResult($('realCard'), realDet); showResult($('fakeCard'), fakeDet);
+    setStatus('No face detected', 'warn');
     return;
   }
-  const realImg = realCtx.getImageData(0, 0, w, h);
-  if (!detMesh) detMesh = buildMesh(lm, w, h);
-  if (!donor) { snapshotDonor(); setStatus('Running.'); }
+  const lm = lastLm = smoothLandmarks(raw, w, h);
+  if (!hasDonor) snapshotDonor();
+  setStatus('Live', 'live');
 
-  renderSwap(lm, meanFaceColor(realImg, lm, donor.mesh));
+  renderSwap(lm, realCanvas);
   fakeCtx.drawImage(glCanvas, 0, 0);
 
-  realDet.update(realImg, lm, detMesh);
-  fakeDet.update(fakeCtx.getImageData(0, 0, w, h), lm, detMesh);
-  showResult($('realResult'), realDet); showResult($('fakeResult'), fakeDet);
+  realDet.update(realCtx.getImageData(0, 0, w, h), lm);
+  fakeDet.update(fakeCtx.getImageData(0, 0, w, h), lm);
+  if (realDet.flicker != null) camera.add(realDet.flicker);
+  realDet.score(camera.baseline); fakeDet.score(camera.baseline);
+  showResult($('realCard'), realDet); showResult($('fakeCard'), fakeDet);
   if (realDet.prob != null) { history.real.push(realDet.prob); history.fake.push(fakeDet.prob); drawChart(); }
 }
 
@@ -341,27 +574,30 @@ async function createLandmarker(runningMode) {
 }
 
 async function start() {
-  if (!gl) { setStatus('This browser does not support WebGL2, which the demo needs.'); return; }
-  initGL();
+  if (!gl) { setStatus('This browser lacks WebGL2', 'warn'); return; }
+  if (!navigator.mediaDevices) { setStatus('Camera blocked: open via https or http://localhost', 'warn'); return; }
   setStatus('Loading face tracker…');
   landmarker = await createLandmarker('VIDEO');
-  if (!navigator.mediaDevices) { setStatus('Camera blocked: open this page via http://localhost (see demo/README.md), not as a file or over plain http.'); return; }
   setStatus('Waiting for camera permission…');
   video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false });
   await video.play();
-  for (const c of [realCanvas, fakeCanvas, glCanvas]) { c.width = video.videoWidth; c.height = video.videoHeight; }
+  for (const c of [realCanvas, fakeCanvas]) { c.width = video.videoWidth; c.height = video.videoHeight; }
+  for (const v of document.querySelectorAll('.view')) v.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+  initGL(video.videoWidth, video.videoHeight);
   $('snapBtn').disabled = $('photoBtn').disabled = false;
-  $('snapBtn').onclick = () => { snapshotDonor(); };
+  $('snapBtn').onclick = snapshotDonor;
   $('photoBtn').onclick = () => $('photoInput').click();
-  $('photoInput').onchange = (e) => { if (e.target.files[0]) photoDonor(e.target.files[0]).catch((err) => setStatus('Could not use that photo: ' + err.message)); e.target.value = ''; };
+  $('photoInput').onchange = (e) => {
+    if (e.target.files[0]) photoDonor(e.target.files[0]).catch((err) => { $('donorLabel').textContent = 'Could not use that photo: ' + err.message; });
+    e.target.value = '';
+  };
+  await initPresets().then(() => selectPreset(PRESETS[0])).catch(() => {}); // falls back to your own face
   setStatus('Looking for a face…');
   frame();
 }
 
 start().catch((err) => {
-  setStatus(err.name === 'NotAllowedError' || err.name === 'NotFoundError'
-    ? 'Camera unavailable — allow camera access and reload. (Open this page via http://localhost, not as a file.)'
-    : 'Failed to start: ' + err.message);
+  setStatus(err.name === 'NotAllowedError' || err.name === 'NotFoundError' ? 'Camera unavailable: allow access and reload' : 'Failed to start: ' + err.message, 'warn');
 });
 </script>
 </body>
