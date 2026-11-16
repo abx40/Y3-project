@@ -16,6 +16,18 @@ This project implements a complete pipeline for deepfake detection in Zoom sessi
 
 ---
 
+## 🎬 Simple Demo (no Zoom needed)
+
+A browser-only demo that shows your webcam twice (original and face-swapped) with a live detector on both feeds:
+
+```bash
+python3 -m http.server 8080 --directory demo
+```
+
+Open <http://localhost:8080>. See [demo/README.md](demo/README.md).
+
+---
+
 ## 📁 Project Structure
 
 ```
