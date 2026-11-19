@@ -6,6 +6,8 @@ for measuring how well those detectors actually hold up inside a live call, comp
 
 BSc (Hons) Computer Science final-year project, University of Manchester, 2025–2026. Awarded First Class.
 
+**Live demo:** [abx40.github.io/Y3-project](https://abx40.github.io/Y3-project/). Turn on your camera, apply a face swap and watch detectors score the original and the deepfake side by side. It runs entirely in your browser.
+
 **Try it without any setup:** `python3 demo/replay_trace.py` replays recorded detector output from the real
 evaluation runs into the live dashboard (standard library only, no weights, no Zoom account).
 See [`demo/README.md`](demo/README.md).
