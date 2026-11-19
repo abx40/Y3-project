@@ -28,7 +28,7 @@ from automation.windows.score_benchmark_v4_np_calibration import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run V4 Neyman-Pearson calibration with configurable strict and relaxed gates.")
-    parser.add_argument("--summary", default="results_rgb_fix_full_2026-04-09/summary_final_clean.csv")
+    parser.add_argument("--summary", default="experiments/results_rgb_fix_full_2026-04-09/summary_final_clean.csv")
     parser.add_argument("--sessions-index", default=r"C:\deepfake_eval\leakfree_eval\sessions_index.csv")
     parser.add_argument("--eval-root", default=r"C:\deepfake_eval\leakfree_eval")
     parser.add_argument("--output-dir", required=True)

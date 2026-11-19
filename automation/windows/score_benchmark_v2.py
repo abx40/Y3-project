@@ -77,7 +77,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--summary", default="results/summary_final_clean.csv")
     parser.add_argument("--sessions-index", default=r"C:\deepfake_eval\leakfree_eval\sessions_index.csv")
     parser.add_argument("--eval-root", default=r"C:\deepfake_eval\leakfree_eval")
-    parser.add_argument("--output-dir", default="results_scored_v2")
+    parser.add_argument("--output-dir", default="experiments/results_scored_v2")
     parser.add_argument("--window-seconds", type=int, default=1)
     return parser.parse_args()
 

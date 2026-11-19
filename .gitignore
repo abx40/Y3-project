@@ -37,3 +37,9 @@ zoom-frame-server/zoom-frame-server.code-workspace
 
 # Local secrets
 zoom-token-server/.env
+
+# Demo run output and local tooling
+zoom-frame-server/logs/
+.claude/
+# ONNX exports are published to Hugging Face, not committed (see demo/README.md)
+onnx_export/

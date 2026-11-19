@@ -76,7 +76,9 @@ SAVE_RAW = os.getenv("SAVE_RAW", "0").strip().lower() in {"1", "true", "yes", "o
 SAVE_PNG = os.getenv("SAVE_PNG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 APP_DIR = Path(__file__).resolve().parent
-DASHBOARD_HTML = APP_DIR / "index.html"
+LEGACY_DASHBOARD_HTML = APP_DIR / "index.html"
+DEFAULT_DASHBOARD_HTML = APP_DIR / "dashboard_v2.html"
+DASHBOARD_HTML = DEFAULT_DASHBOARD_HTML if DEFAULT_DASHBOARD_HTML.is_file() else LEGACY_DASHBOARD_HTML
 
 
 # Toggle deepfake inference

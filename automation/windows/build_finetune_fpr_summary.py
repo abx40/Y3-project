@@ -7,10 +7,10 @@ from typing import Dict, List, Optional
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_NEW_BUNDLE = REPO_ROOT / "results_finetune_clean_fpr_calibration_15s_2026-04-17"
-DEFAULT_OLD_FINE_TUNED = REPO_ROOT / "results_finetune_clean_progress_2026-04-17"
-DEFAULT_BASELINE = REPO_ROOT / "results_scored_v4_np_calibration_15s_rebuilt_calibration_v2_2026-04-15"
-DEFAULT_TRAINING_SUMMARY = REPO_ROOT / "results_finetune_clean_progress_2026-04-17" / "training_summary.csv"
+DEFAULT_NEW_BUNDLE = REPO_ROOT / "experiments" / "results_finetune_clean_fpr_calibration_15s_2026-04-17"
+DEFAULT_OLD_FINE_TUNED = REPO_ROOT / "experiments" / "results_finetune_clean_progress_2026-04-17"
+DEFAULT_BASELINE = REPO_ROOT / "experiments" / "results_scored_v4_np_calibration_15s_rebuilt_calibration_v2_2026-04-15"
+DEFAULT_TRAINING_SUMMARY = REPO_ROOT / "experiments" / "results_finetune_clean_progress_2026-04-17" / "training_summary.csv"
 
 
 def parse_args() -> argparse.Namespace:

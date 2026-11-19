@@ -150,7 +150,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Offline sanity scorer for session mp4 files.")
     parser.add_argument("--models", required=True, help="Comma-separated model keys.")
     parser.add_argument("--videos", required=True, help="Comma-separated absolute video paths.")
-    parser.add_argument("--output-dir", default=str(REPO_ROOT / "results_diagnostics" / "offline_probe"))
+    parser.add_argument("--output-dir", default=str(REPO_ROOT / "experiments" / "results_diagnostics" / "offline_probe"))
     parser.add_argument("--sample-seconds", default="", help="Comma-separated integer seconds to export sample frames.")
     return parser.parse_args()
 

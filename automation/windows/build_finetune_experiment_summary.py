@@ -10,8 +10,8 @@ from typing import Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_EXPERIMENT_ROOT = Path(r"C:\deepfake_eval\f3net_clean_experiment_2026-04-15_v4")
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "results_finetune_clean_progress_2026-04-17"
-DEFAULT_BASELINE_DIR = REPO_ROOT / "results_scored_v4_np_calibration_15s_rebuilt_calibration_v2_2026-04-15"
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "experiments" / "results_finetune_clean_progress_2026-04-17"
+DEFAULT_BASELINE_DIR = REPO_ROOT / "experiments" / "results_scored_v4_np_calibration_15s_rebuilt_calibration_v2_2026-04-15"
 
 
 @dataclass(frozen=True)
@@ -26,38 +26,38 @@ BACKENDS: List[BackendSpec] = [
     BackendSpec(
         backend="f3net",
         artifact_dir=DEFAULT_EXPERIMENT_ROOT / "artifacts" / "finetune_run_01",
-        finetuned_bundle=REPO_ROOT / "results_scored_f3net_ft_clean_v4_15s_2026-04-16",
-        live_results_dir=REPO_ROOT / "results_f3net_ft_clean_live_2026-04-16",
+        finetuned_bundle=REPO_ROOT / "experiments" / "results_scored_f3net_ft_clean_v4_15s_2026-04-16",
+        live_results_dir=REPO_ROOT / "experiments" / "results_f3net_ft_clean_live_2026-04-16",
     ),
     BackendSpec(
         backend="xception_df40",
         artifact_dir=DEFAULT_EXPERIMENT_ROOT / "artifacts" / "xception_finetune_run_01",
-        finetuned_bundle=REPO_ROOT / "results_scored_ft_clean_xception_efficientnet_v4_15s_2026-04-16",
-        live_results_dir=REPO_ROOT / "results_ft_clean_xception_efficientnet_live_retry_2026-04-16",
+        finetuned_bundle=REPO_ROOT / "experiments" / "results_scored_ft_clean_xception_efficientnet_v4_15s_2026-04-16",
+        live_results_dir=REPO_ROOT / "experiments" / "results_ft_clean_xception_efficientnet_live_retry_2026-04-16",
     ),
     BackendSpec(
         backend="efficientnet_b4",
         artifact_dir=DEFAULT_EXPERIMENT_ROOT / "artifacts" / "efficientnet_finetune_run_01",
-        finetuned_bundle=REPO_ROOT / "results_scored_ft_clean_xception_efficientnet_v4_15s_2026-04-16",
-        live_results_dir=REPO_ROOT / "results_ft_clean_xception_efficientnet_live_retry_2026-04-16",
+        finetuned_bundle=REPO_ROOT / "experiments" / "results_scored_ft_clean_xception_efficientnet_v4_15s_2026-04-16",
+        live_results_dir=REPO_ROOT / "experiments" / "results_ft_clean_xception_efficientnet_live_retry_2026-04-16",
     ),
     BackendSpec(
         backend="effort_clip_l14",
         artifact_dir=DEFAULT_EXPERIMENT_ROOT / "artifacts" / "effort_finetune_run_01",
-        finetuned_bundle=REPO_ROOT / "results_scored_ft_clean_effort_v4_15s_2026-04-17",
-        live_results_dir=REPO_ROOT / "results_ft_clean_effort_live_2026-04-17",
+        finetuned_bundle=REPO_ROOT / "experiments" / "results_scored_ft_clean_effort_v4_15s_2026-04-17",
+        live_results_dir=REPO_ROOT / "experiments" / "results_ft_clean_effort_live_2026-04-17",
     ),
     BackendSpec(
         backend="i3d",
         artifact_dir=DEFAULT_EXPERIMENT_ROOT / "artifacts" / "i3d_finetune_run_01",
-        finetuned_bundle=REPO_ROOT / "results_scored_ft_clean_i3d_v4_15s_2026-04-17",
-        live_results_dir=REPO_ROOT / "results_ft_clean_i3d_live_2026-04-17",
+        finetuned_bundle=REPO_ROOT / "experiments" / "results_scored_ft_clean_i3d_v4_15s_2026-04-17",
+        live_results_dir=REPO_ROOT / "experiments" / "results_ft_clean_i3d_live_2026-04-17",
     ),
     BackendSpec(
         backend="videomae",
         artifact_dir=DEFAULT_EXPERIMENT_ROOT / "artifacts" / "videomae_finetune_run_01",
-        finetuned_bundle=REPO_ROOT / "results_scored_ft_clean_videomae_v4_15s_2026-04-17",
-        live_results_dir=REPO_ROOT / "results_ft_clean_videomae_live_2026-04-17",
+        finetuned_bundle=REPO_ROOT / "experiments" / "results_scored_ft_clean_videomae_v4_15s_2026-04-17",
+        live_results_dir=REPO_ROOT / "experiments" / "results_ft_clean_videomae_live_2026-04-17",
     ),
 ]
 

@@ -12,9 +12,9 @@ from automation.windows.score_benchmark_v2_variant_lib import VariantConfig, run
 
 CONFIG = VariantConfig(
     name="fa100_5s",
-    output_dir_default="results_scored_v2_fa100_5s_2026-04-14",
+    output_dir_default="experiments/results_scored_v2_fa100_5s_2026-04-14",
     window_seconds=5,
-    summary_default="results_rgb_fix_full_2026-04-09/summary_final_clean.csv",
+    summary_default="experiments/results_rgb_fix_full_2026-04-09/summary_final_clean.csv",
     sessions_index_default=r"C:\deepfake_eval\leakfree_eval\sessions_index.csv",
     eval_root_default=r"C:\deepfake_eval\leakfree_eval",
     strict_false_alerts_per_min=1.00,

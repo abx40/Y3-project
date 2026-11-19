@@ -14,8 +14,8 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESULTS_DIR = REPO_ROOT / "results"
-RESULTS_SCORED_V2 = REPO_ROOT / "results_scored_v2"
-OUTPUT_DIR = REPO_ROOT / "results_diagnostics"
+RESULTS_SCORED_V2 = REPO_ROOT / "experiments" / "results_scored_v2"
+OUTPUT_DIR = REPO_ROOT / "experiments" / "results_diagnostics"
 EVAL_ROOT = Path(r"C:\deepfake_eval\leakfree_eval")
 SESSION_INDEX = EVAL_ROOT / "sessions_index.csv"
 REPRESENTATIVE_KEYS = [

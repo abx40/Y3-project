@@ -90,7 +90,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        default="results_scored",
+        default="experiments/results_scored",
         help="Output directory for scored artifacts.",
     )
     return parser.parse_args()

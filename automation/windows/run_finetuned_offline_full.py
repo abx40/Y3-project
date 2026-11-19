@@ -11,10 +11,10 @@ from typing import Dict, List, Optional
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PYTHON = REPO_ROOT / "zoom-frame-server" / "venv" / "Scripts" / "python.exe"
 OFFLINE_SCORER = REPO_ROOT / "automation" / "windows" / "offline_mp4_sanity.py"
-DEFAULT_TRAINING_SUMMARY = REPO_ROOT / "results_finetune_clean_progress_2026-04-17" / "training_summary.csv"
+DEFAULT_TRAINING_SUMMARY = REPO_ROOT / "experiments" / "results_finetune_clean_progress_2026-04-17" / "training_summary.csv"
 DEFAULT_SESSIONS_INDEX = Path(r"C:\deepfake_eval\f3net_clean_experiment_2026-04-15_v4\sessions_index.csv")
-DEFAULT_OUTPUT_ROOT = REPO_ROOT / "results_offline_ft_all_full_2026-04-17"
-DEFAULT_EXISTING_F3NET = REPO_ROOT / "results_offline_ft_f3net_full_2026-04-17_v2"
+DEFAULT_OUTPUT_ROOT = REPO_ROOT / "experiments" / "results_offline_ft_all_full_2026-04-17"
+DEFAULT_EXISTING_F3NET = REPO_ROOT / "experiments" / "results_offline_ft_f3net_full_2026-04-17_v2"
 
 CHECKPOINT_ENV = {
     "xception_df40": "XCEPTION_CKPT",

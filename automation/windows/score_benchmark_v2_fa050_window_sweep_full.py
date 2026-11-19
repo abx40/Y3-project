@@ -39,7 +39,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        default="results_scored_v2_fa050_window_sweep_full_2026-04-14",
+        default="experiments/results_scored_v2_fa050_window_sweep_full_2026-04-14",
         help="Directory to write the full sweep bundle.",
     )
     parser.add_argument(

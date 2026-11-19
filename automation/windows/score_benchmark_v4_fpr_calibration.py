@@ -24,7 +24,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--summary",
-        default="results_finetune_clean_progress_2026-04-17/lower_window_sweep_2026-04-17/summary_combined.csv",
+        default="experiments/results_finetune_clean_progress_2026-04-17/lower_window_sweep_2026-04-17/summary_combined.csv",
     )
     parser.add_argument(
         "--sessions-index",
@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        default="results_finetune_clean_fpr_calibration_15s_2026-04-17",
+        default="experiments/results_finetune_clean_fpr_calibration_15s_2026-04-17",
     )
     parser.add_argument("--window-seconds", type=int, default=DEFAULT_WINDOW_SECONDS)
     parser.add_argument("--strict-fpr-real", type=float, default=STRICT_FPR_REAL)
