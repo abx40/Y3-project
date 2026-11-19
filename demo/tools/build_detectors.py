@@ -9,12 +9,9 @@ Usage:
     pip install torch efficientnet_pytorch onnx onnxruntime numpy pyyaml
     python3 demo/tools/build_detectors.py
 
-Add the project's own fine-tuned F3Net (appears in the page as "Project F3Net"):
-    python3 demo/tools/build_detectors.py --f3net-checkpoint path/to/f3net_finetuned_best.pth
-
 Checkpoints are loaded with torch.load(weights_only=True), so no pickled code runs.
 """
-import argparse, importlib.util, pathlib, sys, types, urllib.request
+import importlib.util, pathlib, sys, types, urllib.request
 import numpy as np, onnx, torch, torch.nn as nn, torch.nn.functional as F, yaml
 
 TOOLS = pathlib.Path(__file__).resolve().parent
@@ -86,7 +83,7 @@ def build(name, nets):
     cfg = lambda n: yaml.safe_load((CACHE / 'src' / f'config/detector/{n}.yaml').read_text())['backbone_config']
     if name == 'xception':
         return Detector(nets['xception'].Xception(cfg('xception')))
-    if name in ('f3net', 'f3net_custom'):
+    if name == 'f3net':
         bb = nets['xception'].Xception(cfg('f3net'))
         bb.conv1 = nn.Conv2d(12, 32, 3, 2, 0, bias=False)
         return Detector(bb, nets['f3'].FAD_Head(256))
@@ -126,17 +123,10 @@ def convert(name, checkpoint, half, nets):
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--f3net-checkpoint', help="the project's fine-tuned F3Net .pth (DeepfakeBench format)")
-    ap.add_argument('--only-custom', action='store_true', help='build only the custom F3Net')
-    args = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     nets = load_code()
-    if not args.only_custom:
-        for name, (ckpt, half) in MODELS.items():
-            convert(name, fetch(WEIGHTS_URL + ckpt, CACHE / 'weights' / ckpt), half, nets)
-    if args.f3net_checkpoint:
-        convert('f3net_custom', pathlib.Path(args.f3net_checkpoint), True, nets)
+    for name, (ckpt, half) in MODELS.items():
+        convert(name, fetch(WEIGHTS_URL + ckpt, CACHE / 'weights' / ckpt), half, nets)
 
 
 if __name__ == '__main__':
