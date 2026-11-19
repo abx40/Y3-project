@@ -59,7 +59,6 @@
   .seg button.active { background: #232a3d; box-shadow: none; }
   #aiInfo, #detInfo { color: var(--muted); font-size: 13px; }
   .seg.wrap { flex-wrap: wrap; border-radius: 18px; }
-  #thrSlider { width: 180px; accent-color: var(--accent); }
   #thrVal { font-variant-numeric: tabular-nums; min-width: 3ch; }
   #calInfo { color: var(--muted); font-size: 13px; }
   .progress { width: 160px; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; display: none; }
@@ -111,7 +110,6 @@
 
   <div class="controls">
     <span class="label">Alert at</span>
-    <input type="range" id="thrSlider" min="50" max="99" value="70" aria-label="Alert threshold">
     <b id="thrVal">70%</b>
     <button id="calBtn" disabled>Recalibrate</button>
     <span id="calInfo"></span>
@@ -136,7 +134,7 @@
     that flags a face with less camera noise than your camera normally has. The others are trained deepfake
     detectors from DeepfakeBench (trained on FaceForensics++), run on a face crop, with 15-check
     averaging. Each detector calibrates itself during its first 5 seconds: it watches how it scores your
-    real face in the original feed and puts the alert threshold just above that. Drag the slider or press Recalibrate to change it. Preset faces are synthetic (people who do not exist), from the SFHQ dataset.
+    real face in the original feed and puts the alert threshold just above that. Press Recalibrate to redo it. Preset faces are synthetic (people who do not exist), from the SFHQ dataset.
     The AI swap uses InsightFace's inswapper_128 network (non-commercial research licence), run on your GPU with WebGPU.
   </p>
 </main>
@@ -150,7 +148,7 @@ const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/w
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 // Scores are averaged over the last 15 checks; each detector has its own alert
-// threshold (default 70%), set with the slider or by calibrating on the camera.
+// threshold (70% until it has calibrated itself on the camera).
 const SMOOTHING_WINDOW = 15;
 const DEFAULT_THRESHOLD = 0.7;
 const thresholds = {};
@@ -749,7 +747,7 @@ async function selectDetector(name) {
 // Threshold for the current detector.
 function showThreshold() {
   const t = Math.round(threshold() * 100);
-  $('thrSlider').value = t; $('thrVal').textContent = t + '%';
+  $('thrVal').textContent = t + '%';
   $('thrLegend').textContent = `alert threshold ${t}%`;
 }
 function setThreshold(t, note = '') {
@@ -787,7 +785,6 @@ function calibrationStep(prob, newCheck) {
 }
 
 async function initDetectors() {
-  $('thrSlider').oninput = () => setThreshold(Number($('thrSlider').value) / 100, 'Set by hand');
   $('calBtn').onclick = startCalibration;
   for (const [name, d] of Object.entries(DETECTORS)) {
     const b = document.createElement('button');

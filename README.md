@@ -40,8 +40,8 @@ Internet access is needed on first load to fetch the face tracker.
   5 seconds of scores. It watches how it scores your real face in the original
   feed and sets the alert threshold just above that (5 points above the 95th
   percentile, between 50% and 99%), so the original feed stays below the line.
-  The cards show "Calibrating…" until then. Drag the slider to set it by hand,
-  or press **Recalibrate** (for example after the lighting changes).
+  The cards show "Calibrating…" until then. Press **Recalibrate** to redo it
+  (for example after the lighting changes).
 - Under each feed is the fake probability, averaged over the last 15 checks;
   the chart shows both over time.
 
