@@ -57,7 +57,8 @@
   .seg { display: inline-flex; padding: 3px; gap: 3px; border: 1px solid var(--line); border-radius: 999px; background: #0f1218; }
   .seg button { border: 0; background: transparent; padding: 6px 14px; }
   .seg button.active { background: #232a3d; box-shadow: none; }
-  #aiInfo { color: var(--muted); font-size: 13px; }
+  #aiInfo, #detInfo { color: var(--muted); font-size: 13px; }
+  .seg.wrap { flex-wrap: wrap; border-radius: 18px; }
   .progress { width: 160px; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; display: none; }
   .progress.show { display: block; }
   .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
@@ -99,6 +100,13 @@
   </div>
 
   <div class="controls">
+    <span class="label">Detector</span>
+    <div class="seg wrap" id="detSeg"></div>
+    <div class="progress" id="detProgress"><i></i></div>
+    <span id="detInfo"></span>
+  </div>
+
+  <div class="controls">
     <span class="label">Swap in</span>
     <div class="presets" id="presets"></div>
     <button id="snapBtn" disabled>My own face</button>
@@ -113,9 +121,10 @@
   </section>
 
   <p class="note">
-    Runs entirely in this browser tab; no video leaves your machine. The detector is a simple stand-in for the
-    project's model: it learns your camera's natural frame-to-frame noise from the original feed, then flags a face
-    that is much cleaner than that. Preset faces are synthetic (people who do not exist), from the SFHQ dataset.
+    Runs entirely in this browser tab; no video leaves your machine. Detectors: "Noise check" is a hand-written rule
+    that flags a face with less camera noise than your camera normally has. The others are trained deepfake
+    detectors from DeepfakeBench (trained on FaceForensics++), run on a face crop with the same 15-frame
+    smoothing and 70% threshold as the project's frame server. Preset faces are synthetic (people who do not exist), from the SFHQ dataset.
     The AI swap uses InsightFace's inswapper_128 network (non-commercial research licence), run on your GPU with WebGPU.
   </p>
 </main>
@@ -624,6 +633,126 @@ async function setMethod(ai) {
   })();
 }
 
+/* ---------- trained deepfake detectors (optional) ---------- */
+// Public checkpoints from DeepfakeBench, trained on FaceForensics++, converted to ONNX.
+// Each takes a 256x256 face crop scaled to [-1, 1] and returns P(fake).
+const DETECTORS = {
+  noise: { label: 'Noise check', info: 'Hand-written check of camera noise on the face. No download.' },
+  meso4: { label: 'Meso-4', file: 'models/detectors/meso4.onnx', size: '0.1 MB', info: 'Tiny 2018 network: very fast, weakest.' },
+  meso4Inception: { label: 'MesoInception-4', file: 'models/detectors/meso4Inception.onnx', size: '0.1 MB', info: 'Tiny 2018 network with inception blocks.' },
+  efficientnetb4: { label: 'EfficientNet-B4', file: 'models/detectors/efficientnetb4_w16.onnx', size: '35 MB', info: 'Strong general image network.' },
+  xception: { label: 'Xception', file: 'models/detectors/xception_w16.onnx', size: '42 MB', info: 'The classic FaceForensics++ baseline.' },
+  f3net: { label: 'F3Net', file: 'models/detectors/f3net_w16.onnx', size: '43 MB', info: "Xception plus frequency analysis: the project's architecture." },
+  // Added automatically when models/detectors/f3net_custom_w16.onnx exists (see tools/build_detectors.py).
+  f3net_custom: { label: 'Project F3Net', file: 'models/detectors/f3net_custom_w16.onnx', size: '43 MB', info: "The project's own fine-tuned F3Net, with the frame server's face crop.", crop: 'project', optional: true },
+};
+
+// Rolling average of a model's per-frame P(fake), like the frame server's smoothing window.
+class ModelScore {
+  constructor() { this.reset(); }
+  reset() { this.window = []; this.prob = null; this.raw = null; }
+  add(p) {
+    this.raw = p; this.window.push(p);
+    if (this.window.length > SMOOTHING_WINDOW) this.window.shift();
+    this.prob = this.window.reduce((s, v) => s + v, 0) / this.window.length;
+  }
+}
+
+const DET = { name: 'noise', sessions: {}, busy: false, loading: null, real: new ModelScore(), fake: new ModelScore(), times: [] };
+let fakeLm = null; // landmarks for the frame currently shown in the deepfake feed
+
+// Square face crop, 256x256, as planar RGB in [-1, 1].
+//   'dfb'     – DeepfakeBench style: 1.3x the face box, centred on the face.
+//   'project' – the frame server's crop: 1.5x the face box, at least 70% of the
+//               frame's short side, kept inside the frame.
+const detCanvas = document.createElement('canvas');
+detCanvas.width = detCanvas.height = 256;
+const detCtx = detCanvas.getContext('2d', { willReadFrequently: true });
+function faceCrop(source, lm, style, out, offset) {
+  const w = source.width, h = source.height, b = faceBox(lm);
+  const bw = (b.maxX - b.minX) * w, bh = (b.maxY - b.minY) * h;
+  let cx = (b.minX + b.maxX) / 2 * w, cy = (b.minY + b.maxY) / 2 * h, side;
+  if (style === 'project') {
+    side = Math.min(Math.max(Math.max(bw, bh) * 1.5, Math.min(w, h) * 0.7), Math.min(w, h));
+    cx = Math.min(Math.max(cx, side / 2), w - side / 2); cy = Math.min(Math.max(cy, side / 2), h - side / 2);
+  } else {
+    side = Math.max(bw, bh) * 1.3;
+  }
+  detCtx.fillStyle = '#000'; detCtx.fillRect(0, 0, 256, 256);
+  detCtx.imageSmoothingQuality = 'high';
+  detCtx.drawImage(source, cx - side / 2, cy - side / 2, side, side, 0, 0, 256, 256);
+  const d = detCtx.getImageData(0, 0, 256, 256).data, n = 256 * 256;
+  for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) out[offset + c * n + i] = d[4 * i + c] / 127.5 - 1;
+}
+
+function runDetector(lm) {
+  const session = DET.sessions[DET.name];
+  if (!session || DET.busy || !fakeLm) return;
+  DET.busy = true;
+  const style = DETECTORS[DET.name].crop || 'dfb', n = 3 * 256 * 256, input = new Float32Array(2 * n);
+  faceCrop(realCanvas, lm, style, input, 0);
+  faceCrop(fakeCanvas, fakeLm, style, input, n);
+  const name = DET.name;
+  session.run({ image: new AI.ort.Tensor('float32', input, [2, 3, 256, 256]) }).then((res) => {
+    if (DET.name !== name) return;
+    const p = res.prob.data;
+    DET.real.add(p[0]); DET.fake.add(p[1]);
+    DET.times.push(performance.now());
+    if (DET.times.length > 10) DET.times.shift();
+    if (DET.times.length > 2 && !$('detProgress').classList.contains('show')) {
+      const rate = (DET.times.length - 1) / ((DET.times.at(-1) - DET.times[0]) / 1000);
+      $('detInfo').textContent = `${DETECTORS[name].label} on your ${AI.provider} · ${rate < 2 ? rate.toFixed(1) : Math.round(rate)} checks/s`;
+    }
+  }).catch((e) => detFailed(e)).finally(() => { DET.busy = false; });
+}
+
+function detFailed(e) {
+  console.error(e);
+  $('detProgress').classList.remove('show');
+  selectDetector('noise');
+  $('detInfo').textContent = 'Detector failed to start: ' + (e.message || e);
+}
+
+async function selectDetector(name) {
+  const d = DETECTORS[name];
+  for (const b of $('detSeg').children) b.classList.toggle('active', b.dataset.det === name);
+  DET.real.reset(); DET.fake.reset(); DET.times = [];
+  if (name === 'noise' || DET.sessions[name]) {
+    DET.name = name;
+    $('detInfo').textContent = d.info;
+    return;
+  }
+  DET.name = 'noise'; // keep the noise check running while the model loads
+  if (DET.loading) return;
+  DET.loading = (async () => {
+    try {
+      await AI.loadRuntime();
+      const show = (f) => { $('detProgress').classList.add('show'); $('detProgress').firstElementChild.style.width = Math.round(f * 100) + '%'; $('detInfo').textContent = `Downloading ${d.label} (${d.size})… ${Math.round(f * 100)}%`; };
+      show(0);
+      const bytes = await fetchBytes([d.file], show);
+      $('detInfo').textContent = `Starting ${d.label}…`;
+      DET.sessions[name] = await AI.session(bytes);
+      $('detProgress').classList.remove('show');
+      if ([...$('detSeg').children].find((b) => b.dataset.det === name)?.classList.contains('active')) { DET.name = name; $('detInfo').textContent = d.info; }
+    } catch (e) { detFailed(e); }
+    finally { DET.loading = null; }
+  })();
+}
+
+async function initDetectors() {
+  for (const [name, d] of Object.entries(DETECTORS)) {
+    if (d.optional) {
+      try { if (!(await fetch(d.file, { method: 'HEAD' })).ok) continue; } catch { continue; }
+    }
+    const b = document.createElement('button');
+    b.textContent = d.label; b.dataset.det = name;
+    b.title = d.info + (d.size ? ` (${d.size} download)` : '');
+    b.onclick = () => selectDetector(name);
+    $('detSeg').append(b);
+  }
+  selectDetector('noise');
+}
+
 /* ---------- the detector ---------- */
 
 const luma = (d, i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
@@ -715,8 +844,12 @@ function showResult(card, det) {
   if (det.prob == null) { card.className = 'card'; verdict.textContent = lastLm ? 'Calibrating…' : 'Waiting…'; pct.textContent = '–'; bar.style.width = '0'; detail.textContent = ''; return; }
   const fake = det.prob >= ALERT_THRESHOLD, p = Math.round(det.prob * 100);
   card.className = 'card ' + (fake ? 'fake' : 'real');
-  card.dataset.ratio = det.level.toFixed(2);
-  detail.textContent = `Face noise is ${det.level.toFixed(2)}× this camera's normal level`;
+  if (det instanceof ModelScore) {
+    detail.textContent = `${DETECTORS[DET.name].label}: this frame ${Math.round(det.raw * 100)}% fake, averaged over ${det.window.length} frames`;
+  } else {
+    card.dataset.ratio = det.level.toFixed(2);
+    detail.textContent = `Face noise is ${det.level.toFixed(2)}× this camera's normal level`;
+  }
   verdict.textContent = fake ? 'Deepfake detected' : 'Looks real';
   pct.innerHTML = p + '%<small>fake</small>';
   bar.style.width = p + '%';
@@ -783,8 +916,8 @@ function frame() {
   const raw = landmarker.detectForVideo(realCanvas, performance.now()).faceLandmarks[0];
   if (!raw) {
     fakeCtx.drawImage(realCanvas, 0, 0);
-    lastLm = smooth = null; G.liveAvgValid = false;
-    realDet.reset(); fakeDet.reset();
+    lastLm = smooth = fakeLm = null; G.liveAvgValid = false;
+    realDet.reset(); fakeDet.reset(); DET.real.reset(); DET.fake.reset();
     showResult($('realCard'), realDet); showResult($('fakeCard'), fakeDet);
     setStatus('No face detected', 'warn');
     return;
@@ -807,6 +940,7 @@ function frame() {
       const stillLm = lm.map((p) => ({ ...p }));
       AI.render(still, stillLm, fakeCtx).then(() => {
         if (!AI.on) return;
+        fakeLm = stillLm;
         fakeDet.update(fakeCtx.getImageData(0, 0, w, h), stillLm);
         fakeDet.score(camera.baseline);
       }).catch(aiFailed).finally(() => { AI.busy = false; });
@@ -815,11 +949,14 @@ function frame() {
     fakeCtx.drawImage(realCanvas, 0, 0);
     renderSwap(lm, realCanvas);
     fakeCtx.drawImage(glCanvas, 0, 0);
+    fakeLm = lm;
     fakeDet.update(fakeCtx.getImageData(0, 0, w, h), lm);
     fakeDet.score(camera.baseline);
   }
-  showResult($('realCard'), realDet); showResult($('fakeCard'), fakeDet);
-  if (realDet.prob != null) { history.real.push(realDet.prob); history.fake.push(fakeDet.prob); drawChart(); }
+  if (DET.name !== 'noise') runDetector(lm);
+  const [shownReal, shownFake] = DET.name === 'noise' ? [realDet, fakeDet] : [DET.real, DET.fake];
+  showResult($('realCard'), shownReal); showResult($('fakeCard'), shownFake);
+  if (realDet.prob != null || shownReal.prob != null) { history.real.push(shownReal.prob); history.fake.push(shownFake.prob); drawChart(); }
 }
 
 async function createLandmarker(runningMode) {
@@ -848,6 +985,7 @@ async function start() {
     if (e.target.files[0]) photoDonor(e.target.files[0]).catch((err) => { $('donorLabel').textContent = 'Could not use that photo: ' + err.message; });
     e.target.value = '';
   };
+  initDetectors();
   await initPresets().then(() => selectPreset(PRESETS[0])).catch(() => {}); // falls back to your own face
   setStatus('Looking for a face…');
   frame();

@@ -31,6 +31,13 @@ Internet access is needed on first load to fetch the face tracker.
   - **Preset faces** – ten built-in synthetic faces (people who do not exist).
   - **My own face** – a frozen snapshot of your own face.
   - **Upload photo** – the face from any photo (front-facing works best).
+- **Detector** – pick which detector scores both feeds:
+  - **Noise check** – the default: a hand-written rule, no download.
+  - **Meso-4**, **MesoInception-4** (0.1 MB each), **EfficientNet-B4** (35 MB),
+    **Xception** (42 MB), **F3Net** (43 MB) – trained detectors, downloaded
+    when first picked.
+  - **Project F3Net** – appears only if the project's own fine-tuned F3Net has
+    been added (see below).
 - Under each feed is the fake probability; the chart shows both over time, with
   the same 15-frame smoothing and 70% alert threshold as the frame server.
 
@@ -46,11 +53,18 @@ Internet access is needed on first load to fetch the face tracker.
   with a soft edge. The donor's identity code comes from the ArcFace
   `w600k_r50` recognition model; for the presets it is precomputed in
   `faces/latents.json`. Both models replace the face only, not hair or head shape.
-- **Detector**: a stand-in for the project's model. It measures fine
-  frame-to-frame flicker (camera sensor noise) on the face relative to the
-  background, learns the camera's normal level from the original feed, and
-  flags a face that is far cleaner than that. It catches both swaps here, but
-  it is not a general-purpose deepfake detector.
+- **Noise check**: measures fine frame-to-frame flicker (camera sensor noise)
+  on the face relative to the background, learns the camera's normal level from
+  the original feed, and flags a face that is far cleaner than that. It catches
+  both swaps here, but it is not a general-purpose deepfake detector.
+- **Trained detectors**: the public checkpoints from
+  [DeepfakeBench](https://github.com/SCLBD/DeepfakeBench), all trained on
+  FaceForensics++ (c23), converted to ONNX and run with onnxruntime-web. Each
+  gets a square face crop (1.3× the face, 256×256, scaled to [-1, 1]), as in
+  DeepfakeBench. Expect false alarms: detectors trained only on FaceForensics++
+  are known to generalise poorly to other cameras and lighting, so the original
+  feed can score as fake too. That is the generalisation problem the project's
+  DF40-trained, fine-tuned F3Net is meant to address.
 
 Nothing is uploaded; all processing happens in the browser tab.
 
@@ -69,7 +83,31 @@ This downloads the original models, stores their weights at half size, splits
 the swap model into parts under GitHub's 100 MB file limit, and writes them to
 `demo/models/` (ignored by git).
 
+To rebuild the detectors:
+
+```bash
+pip install torch efficientnet_pytorch onnx onnxruntime numpy pyyaml
+python3 demo/tools/build_detectors.py
+```
+
+### Adding the project's own F3Net
+
+```bash
+python3 demo/tools/build_detectors.py --only-custom --f3net-checkpoint path/to/f3net_finetuned_best.pth
+```
+
+This writes `demo/models/detectors/f3net_custom_w16.onnx` (about 43 MB). Copy
+it to `models/detectors/` on the `gh-pages` branch and push; the page then shows
+a **Project F3Net** button. That model uses the frame server's face crop (1.5×
+the face box, at least 70% of the frame's short side), with face boxes from
+MediaPipe instead of the Haar cascade, so scores will differ a little from the
+frame server's.
+
 ## Credits
+
+Detector checkpoints and model code are from
+[DeepfakeBench](https://github.com/SCLBD/DeepfakeBench) (Yan et al.), trained on
+FaceForensics++.
 
 Preset faces in `faces/` are synthetic images from the
 [SFHQ dataset](https://github.com/SelfishGene/SFHQ-dataset) by David Beniaguev.
