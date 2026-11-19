@@ -525,6 +525,15 @@ const outCanvas = document.createElement('canvas');
 outCanvas.width = outCanvas.height = 128;
 const outCtx = outCanvas.getContext('2d');
 
+// onnxruntime-web can only do one thing at a time (load or run a model), so the
+// swap and the detector take turns through this queue.
+let ortQueue = Promise.resolve();
+function ortTask(fn) {
+  const p = ortQueue.then(fn, fn);
+  ortQueue = p.catch(() => {});
+  return p;
+}
+
 const AI = {
   on: false, ort: null, swap: null, arcface: null, emap: null, presetLatents: null, provider: '',
   latent: null, busy: false, loading: null, times: [],
@@ -539,12 +548,12 @@ const AI = {
     const opts = { graphOptimizationLevel: 'all' };
     if (this.gpuOk === undefined) { try { this.gpuOk = !!(await navigator.gpu?.requestAdapter()); } catch { this.gpuOk = false; } }
     if (this.gpuOk) {
-      try { const s = await this.ort.InferenceSession.create(bytes, { ...opts, executionProviders: ['webgpu'] }); this.provider = 'GPU'; return s; } catch (e) { console.warn('WebGPU unavailable, using CPU', e); }
+      try { const s = await ortTask(() => this.ort.InferenceSession.create(bytes, { ...opts, executionProviders: ['webgpu'] })); this.provider = 'GPU'; return s; } catch (e) { console.warn('WebGPU unavailable, using CPU', e); }
     }
     this.provider = 'CPU';
     if (!this.ort.env.wasm.proxy && !this.wasmStarted) this.ort.env.wasm.proxy = true; // keep the page responsive: run in a background worker
     this.wasmStarted = true;
-    return this.ort.InferenceSession.create(bytes, { ...opts, executionProviders: ['wasm'] });
+    return ortTask(() => this.ort.InferenceSession.create(bytes, { ...opts, executionProviders: ['wasm'] }));
   },
   async loadSwap() {
     if (this.swap) return;
@@ -574,7 +583,7 @@ const AI = {
       await this.loadArcface();
       const m = similarity(fivePoints(d.lm, d.source.width, d.source.height), ARC_TEMPLATE);
       const input = alignedCrop(d.source, m, 112, 1 / 127.5, -1);
-      const emb = (await this.arcface.run({ input: new this.ort.Tensor('float32', input, [1, 3, 112, 112]) })).output.data;
+      const emb = (await ortTask(() => this.arcface.run({ input: new this.ort.Tensor('float32', input, [1, 3, 112, 112]) }))).output.data;
       // latent = normalise(normalise(emb) · emap)
       let n = 0; for (const v of emb) n += v * v; n = Math.sqrt(n);
       const lat = new Float32Array(512);
@@ -592,7 +601,8 @@ const AI = {
     const m = similarity(fivePoints(lm, w, h), tmpl);
     const target = alignedCrop(frame, m, 128, 1 / 255, 0);
     const T = this.ort.Tensor;
-    const out = (await this.swap.run({ target: new T('float32', target, [1, 3, 128, 128]), source: new T('float32', this.latent.slice(), [1, 512]) })).output.data;
+    const latent = this.latent.slice();
+    const out = (await ortTask(() => this.swap.run({ target: new T('float32', target, [1, 3, 128, 128]), source: new T('float32', latent, [1, 512]) }))).output.data;
     const img = outCtx.createImageData(128, 128), n = 128 * 128;
     for (let i = 0; i < n; i++) {
       for (let c = 0; c < 3; c++) img.data[4 * i + c] = Math.max(0, Math.min(255, out[c * n + i] * 255));
@@ -696,7 +706,7 @@ function runDetector(lm) {
   faceCrop(realCanvas, lm, input, 0);
   faceCrop(fakeCanvas, fakeLm, input, n);
   const name = DET.name;
-  session.run({ image: new AI.ort.Tensor('float32', input, [2, 3, 256, 256]) }).then((res) => {
+  ortTask(() => session.run({ image: new AI.ort.Tensor('float32', input, [2, 3, 256, 256]) })).then((res) => {
     if (DET.name !== name) return;
     const p = res.prob.data;
     DET.real.add(p[0]); DET.fake.add(p[1]); DET.checks = (DET.checks || 0) + 1;
