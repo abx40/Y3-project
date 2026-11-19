@@ -33,3 +33,7 @@ videosdk-linux-raw-recording-sample/bin/config.txt
 
 # Skip the frame analyzer (maintained separately)
 zoom-frame-server/
+
+# AI swap model files (built by demo/tools/build_models.py, published on gh-pages)
+demo/models/
+demo/tools/.download/

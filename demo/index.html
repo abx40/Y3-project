@@ -54,6 +54,13 @@
   button.primary:hover:not(:disabled) { background: #85a0ff; border-color: #85a0ff; }
   button:disabled { opacity: .45; cursor: default; }
   #donorLabel { color: var(--muted); font-size: 13px; }
+  .seg { display: inline-flex; padding: 3px; gap: 3px; border: 1px solid var(--line); border-radius: 999px; background: #0f1218; }
+  .seg button { border: 0; background: transparent; padding: 6px 14px; }
+  .seg button.active { background: #232a3d; box-shadow: none; }
+  #aiInfo { color: var(--muted); font-size: 13px; }
+  .progress { width: 160px; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; display: none; }
+  .progress.show { display: block; }
+  .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
 
   .chart h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 10px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
   .chart h2 span { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
@@ -77,11 +84,18 @@
       <div class="detail"></div>
     </section>
     <section class="card" id="fakeCard">
-      <div class="view"><canvas id="fakeCanvas" width="640" height="480"></canvas><span class="tag">Deepfake</span></div>
+      <div class="view"><canvas id="fakeCanvas" width="640" height="480"></canvas><span class="tag" id="fakeTag">Deepfake · mesh</span></div>
       <div class="score"><span class="verdict">Waiting…</span><span class="pct">–</span></div>
       <div class="bar"><i></i></div>
       <div class="detail"></div>
     </section>
+  </div>
+
+  <div class="controls">
+    <span class="label">Swap method</span>
+    <div class="seg"><button id="meshBtn" class="active">Mesh (instant)</button><button id="aiBtn" disabled>AI neural swap</button></div>
+    <div class="progress" id="aiProgress"><i></i></div>
+    <span id="aiInfo">Optional: one-time ~280 MB download (+90 MB for your own face or a photo); needs a browser with WebGPU</span>
   </div>
 
   <div class="controls">
@@ -102,6 +116,7 @@
     Runs entirely in this browser tab; no video leaves your machine. The detector is a simple stand-in for the
     project's model: it learns your camera's natural frame-to-frame noise from the original feed, then flags a face
     that is much cleaner than that. Preset faces are synthetic (people who do not exist), from the SFHQ dataset.
+    The AI swap uses InsightFace's inswapper_128 network (non-commercial research licence), run on your GPU with WebGPU.
   </p>
 </main>
 
@@ -301,7 +316,10 @@ function donorAlpha(lm, w, h) {
 }
 
 // Use `source` (a canvas holding a face) with landmarks `lm` as the face to paste on.
-function setDonor(source, lm, activeEl, label = '') {
+let donor = null; // { source, lm, preset }: the face currently swapped in
+function setDonor(source, lm, activeEl, label = '', preset = null) {
+  donor = { source, lm, preset };
+  if (AI.on) AI.prepareDonor();
   const uv = new Float32Array(N_LM * 2);
   for (let i = 0; i < N_LM; i++) { uv[2 * i] = lm[i].x; uv[2 * i + 1] = lm[i].y; }
   gl.bindBuffer(gl.ARRAY_BUFFER, G.uvBuf); gl.bufferData(gl.ARRAY_BUFFER, uv, gl.STATIC_DRAW);
@@ -311,7 +329,7 @@ function setDonor(source, lm, activeEl, label = '') {
   gl.generateMipmap(gl.TEXTURE_2D);
   hasDonor = true;
   $('donorLabel').textContent = label;
-  for (const el of document.querySelectorAll('.controls button')) el.classList.toggle('active', el === activeEl);
+  for (const el of document.querySelectorAll('#presets button, #snapBtn, #photoBtn')) el.classList.toggle('active', el === activeEl);
 }
 
 // Built-in faces: synthetic people, with their face points precomputed in faces.json.
@@ -336,7 +354,7 @@ async function selectPreset(name) {
   c.getContext('2d').drawImage(img, 0, 0);
   const p = presetPoints[name], lm = [];
   for (let i = 0; i < N_LM; i++) lm.push({ x: p[3 * i], y: p[3 * i + 1], z: p[3 * i + 2] });
-  setDonor(c, lm, document.querySelector(`[data-preset="${name}"]`));
+  setDonor(c, lm, document.querySelector(`[data-preset="${name}"]`), '', name);
 }
 
 const posArr = new Float32Array(N_LM * 3);
@@ -386,6 +404,224 @@ function renderSwap(lm, frame) {
   bind(0, G.face.tex); bind(1, G.small[0].tex); bind(2, G.liveAvg[0].tex);
   gl.uniform1i(G.final.u.uFace, 0); gl.uniform1i(G.final.u.uBlurFace, 1); gl.uniform1i(G.final.u.uBlurLive, 2);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* ---------- optional AI swap: a neural face-swap network ---------- */
+// InsightFace's inswapper_128 (via onnxruntime-web on WebGPU). It takes your
+// face, cut out and straightened to 128x128, plus a 512-number identity code
+// for the donor face, and paints the donor's face with your pose, expression
+// and lighting. The identity code comes from the ArcFace recognition model
+// (precomputed for the presets, so they need only the swap model).
+
+const ORT_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
+const SWAP_PARTS = [0, 1, 2].map((i) => `models/inswapper_128_w16.onnx.part${i}`);
+const ARCFACE_URL = 'models/arcface_w600k_r50_fp16.onnx';
+const EMAP_URL = 'models/emap.bin';
+const MODEL_CACHE = 'deepfake-demo-models-v1';
+// Where the eyes, nose tip and mouth corners sit in ArcFace's 112x112 face crop.
+const ARC_TEMPLATE = [[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366], [41.5493, 92.3655], [70.7299, 92.2041]];
+
+// Download files (with progress), keeping a copy in the browser cache for next time.
+async function fetchBytes(urls, onProgress) {
+  let cache = null;
+  try { cache = await caches.open(MODEL_CACHE); } catch {}
+  const parts = [];
+  for (const [k, url] of urls.entries()) {
+    let cached = null;
+    try { cached = cache && await cache.match(url); } catch {}
+    if (cached) { parts.push(new Uint8Array(await cached.arrayBuffer())); onProgress((k + 1) / urls.length); continue; }
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`could not download ${url} (${res.status})`);
+    const size = Number(res.headers.get('content-length')) || 0, reader = res.body.getReader(), chunks = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value); got += value.length;
+      if (size) onProgress((k + got / size) / urls.length);
+    }
+    const part = new Uint8Array(got);
+    let o = 0;
+    for (const c of chunks) { part.set(c, o); o += c.length; }
+    parts.push(part);
+    cache?.put(url, new Response(part)).catch(() => {});
+  }
+  if (parts.length === 1) return parts[0];
+  const out = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+// Least-squares rotation + scale + shift mapping points `src` onto `dst`.
+function similarity(src, dst) {
+  const n = src.length;
+  let sx = 0, sy = 0, dx = 0, dy = 0;
+  for (let i = 0; i < n; i++) { sx += src[i][0]; sy += src[i][1]; dx += dst[i][0]; dy += dst[i][1]; }
+  sx /= n; sy /= n; dx /= n; dy /= n;
+  let a = 0, b = 0, norm = 0;
+  for (let i = 0; i < n; i++) {
+    const px = src[i][0] - sx, py = src[i][1] - sy, qx = dst[i][0] - dx, qy = dst[i][1] - dy;
+    a += px * qx + py * qy; b += px * qy - py * qx; norm += px * px + py * py;
+  }
+  a /= norm; b /= norm;
+  return [a, b, -b, a, dx - (a * sx - b * sy), dy - (b * sx + a * sy)]; // canvas setTransform order
+}
+function invert([a, b, c, d, e, f]) {
+  const det = a * d - b * c;
+  return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
+}
+function fivePoints(lm, w, h) {
+  const p = (i) => [lm[i].x * w, lm[i].y * h], mid = (i, j) => [(lm[i].x + lm[j].x) / 2 * w, (lm[i].y + lm[j].y) / 2 * h];
+  return [mid(33, 133), mid(362, 263), p(1), p(61), p(291)];
+}
+
+// Cut out the face straightened to size x size, as planar RGB floats.
+const cropCanvas = document.createElement('canvas');
+const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
+function alignedCrop(source, matrix, size, scale, offset) {
+  cropCanvas.width = cropCanvas.height = size;
+  cropCtx.setTransform(...matrix);
+  cropCtx.imageSmoothingQuality = 'high';
+  cropCtx.drawImage(source, 0, 0);
+  cropCtx.setTransform(1, 0, 0, 1, 0, 0);
+  const d = cropCtx.getImageData(0, 0, size, size).data, n = size * size, out = new Float32Array(3 * n);
+  for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) out[c * n + i] = d[4 * i + c] * scale + offset;
+  return out;
+}
+
+// Soft-edged mask for pasting the 128x128 result back into the frame.
+const MASK = (() => {
+  const m = new Float32Array(128 * 128), inset = 10, fade = 16;
+  for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) {
+    const e = Math.min(x, y, 127 - x, 127 - y) - inset;
+    m[y * 128 + x] = Math.min(1, Math.max(0, e / fade)) ** 1.5;
+  }
+  return m;
+})();
+const outCanvas = document.createElement('canvas');
+outCanvas.width = outCanvas.height = 128;
+const outCtx = outCanvas.getContext('2d');
+
+const AI = {
+  on: false, ort: null, swap: null, arcface: null, emap: null, presetLatents: null, provider: '',
+  latent: null, busy: false, loading: null, times: [],
+
+  async loadRuntime() {
+    if (this.ort) return;
+    this.ort = await import(ORT_URL + 'ort.webgpu.min.mjs');
+    this.ort.env.wasm.wasmPaths = ORT_URL;
+    this.ort.env.wasm.numThreads = 1;
+  },
+  async session(bytes) {
+    const opts = { graphOptimizationLevel: 'all' };
+    if (this.gpuOk === undefined) { try { this.gpuOk = !!(await navigator.gpu?.requestAdapter()); } catch { this.gpuOk = false; } }
+    if (this.gpuOk) {
+      try { const s = await this.ort.InferenceSession.create(bytes, { ...opts, executionProviders: ['webgpu'] }); this.provider = 'GPU'; return s; } catch (e) { console.warn('WebGPU unavailable, using CPU', e); }
+    }
+    this.provider = 'CPU';
+    if (!this.ort.env.wasm.proxy && !this.wasmStarted) this.ort.env.wasm.proxy = true; // keep the page responsive: run in a background worker
+    this.wasmStarted = true;
+    return this.ort.InferenceSession.create(bytes, { ...opts, executionProviders: ['wasm'] });
+  },
+  async loadSwap() {
+    if (this.swap) return;
+    await this.loadRuntime();
+    showProgress(0, 'Downloading AI model…');
+    const bytes = await fetchBytes(SWAP_PARTS, (f) => showProgress(f, `Downloading AI model… ${Math.round(f * 100)}%`));
+    showProgress(1, 'Starting AI model…');
+    this.swap = await this.session(bytes);
+    this.presetLatents = await (await fetch('faces/latents.json')).json();
+  },
+  async loadArcface() {
+    if (this.arcface) return;
+    await this.loadRuntime();
+    showProgress(0, 'Downloading face-identity model…');
+    const bytes = await fetchBytes([ARCFACE_URL], (f) => showProgress(f, `Downloading face-identity model… ${Math.round(f * 100)}%`));
+    this.emap = new Float32Array((await fetchBytes([EMAP_URL], () => {})).buffer);
+    showProgress(1, 'Starting face-identity model…');
+    this.arcface = await this.session(bytes);
+  },
+
+  // Identity code for the current donor face.
+  async prepareDonor() {
+    const d = donor;
+    if (!d) return;
+    if (d.preset && this.presetLatents?.[d.preset]) { this.latent = Float32Array.from(this.presetLatents[d.preset]); return; }
+    try {
+      await this.loadArcface();
+      const m = similarity(fivePoints(d.lm, d.source.width, d.source.height), ARC_TEMPLATE);
+      const input = alignedCrop(d.source, m, 112, 1 / 127.5, -1);
+      const emb = (await this.arcface.run({ input: new this.ort.Tensor('float32', input, [1, 3, 112, 112]) })).output.data;
+      // latent = normalise(normalise(emb) · emap)
+      let n = 0; for (const v of emb) n += v * v; n = Math.sqrt(n);
+      const lat = new Float32Array(512);
+      for (let j = 0; j < 512; j++) { let s = 0; for (let i = 0; i < 512; i++) s += emb[i] / n * this.emap[i * 512 + j]; lat[j] = s; }
+      let m2 = 0; for (const v of lat) m2 += v * v; m2 = Math.sqrt(m2);
+      if (donor === d) this.latent = lat.map((v) => v / m2);
+      hideProgress();
+    } catch (e) { aiFailed(e); }
+  },
+
+  // Swap the face in `frame` (landmarks `lm`) and draw the result into ctx.
+  async render(frame, lm, ctx) {
+    const w = frame.width, h = frame.height;
+    const tmpl = ARC_TEMPLATE.map(([x, y]) => [x * 128 / 112, y * 128 / 112]);
+    const m = similarity(fivePoints(lm, w, h), tmpl);
+    const target = alignedCrop(frame, m, 128, 1 / 255, 0);
+    const T = this.ort.Tensor;
+    const out = (await this.swap.run({ target: new T('float32', target, [1, 3, 128, 128]), source: new T('float32', this.latent.slice(), [1, 512]) })).output.data;
+    const img = outCtx.createImageData(128, 128), n = 128 * 128;
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < 3; c++) img.data[4 * i + c] = Math.max(0, Math.min(255, out[c * n + i] * 255));
+      img.data[4 * i + 3] = MASK[i] * 255;
+    }
+    outCtx.putImageData(img, 0, 0);
+    ctx.drawImage(frame, 0, 0);
+    ctx.setTransform(...invert(m));
+    ctx.drawImage(outCanvas, 0, 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.times.push(performance.now());
+    if (this.times.length > 10) this.times.shift();
+    if (this.times.length > 2 && !$('aiProgress').classList.contains('show')) {
+      const fps = (this.times.length - 1) / ((this.times.at(-1) - this.times[0]) / 1000);
+      $('aiInfo').textContent = `AI swap on your ${this.provider} · ${fps < 2 ? fps.toFixed(1) : Math.round(fps)} fps` + (this.provider === 'CPU' ? ' (slow: this browser has no WebGPU)' : '');
+    }
+  },
+};
+
+function showProgress(f, text) {
+  $('aiProgress').classList.add('show');
+  $('aiProgress').firstElementChild.style.width = Math.round(f * 100) + '%';
+  $('aiInfo').textContent = text;
+}
+function hideProgress() {
+  $('aiProgress').classList.remove('show');
+  $('aiInfo').textContent = AI.on ? `AI swap running on your ${AI.provider}` + (AI.provider === 'CPU' ? ' (slow: this browser has no WebGPU)' : '') : '';
+}
+function aiFailed(e) {
+  console.error(e);
+  setMethod(false);
+  $('aiProgress').classList.remove('show');
+  $('aiInfo').textContent = 'AI swap failed to start: ' + (e.message || e);
+}
+async function setMethod(ai) {
+  $('meshBtn').classList.toggle('active', !ai);
+  $('aiBtn').classList.toggle('active', ai);
+  $('fakeTag').textContent = ai ? 'Deepfake · AI' : 'Deepfake · mesh';
+  if (!ai) { AI.on = false; AI.times = []; fakeDet.reset(); hideProgress(); return; }
+  if (AI.loading) return;
+  $('aiBtn').disabled = true;
+  AI.loading = (async () => {
+    try {
+      await AI.loadSwap();
+      await AI.prepareDonor();
+      if (!$('aiBtn').classList.contains('active')) return; // switched back while loading
+      AI.on = true; fakeDet.reset();
+      hideProgress();
+    } catch (e) { aiFailed(e); }
+    finally { AI.loading = null; $('aiBtn').disabled = false; }
+  })();
 }
 
 /* ---------- the detector ---------- */
@@ -503,7 +739,8 @@ function drawChart() {
     const pts = history[key];
     while (pts.length > N) pts.shift();
     chartCtx.strokeStyle = color; chartCtx.beginPath();
-    pts.forEach((p, i) => { const x = i / (N - 1) * w; i ? chartCtx.lineTo(x, yOf(p)) : chartCtx.moveTo(x, yOf(p)); });
+    let pen = false; // gaps (no score yet) break the line
+    pts.forEach((p, i) => { if (p == null) { pen = false; return; } const x = i / (N - 1) * w; pen ? chartCtx.lineTo(x, yOf(p)) : chartCtx.moveTo(x, yOf(p)); pen = true; });
     chartCtx.stroke();
   }
 }
@@ -544,8 +781,8 @@ function frame() {
 
   realCtx.drawImage(video, 0, 0, w, h);
   const raw = landmarker.detectForVideo(realCanvas, performance.now()).faceLandmarks[0];
-  fakeCtx.drawImage(realCanvas, 0, 0);
   if (!raw) {
+    fakeCtx.drawImage(realCanvas, 0, 0);
     lastLm = smooth = null; G.liveAvgValid = false;
     realDet.reset(); fakeDet.reset();
     showResult($('realCard'), realDet); showResult($('fakeCard'), fakeDet);
@@ -556,13 +793,31 @@ function frame() {
   if (!hasDonor) snapshotDonor();
   setStatus('Live', 'live');
 
-  renderSwap(lm, realCanvas);
-  fakeCtx.drawImage(glCanvas, 0, 0);
-
   realDet.update(realCtx.getImageData(0, 0, w, h), lm);
-  fakeDet.update(fakeCtx.getImageData(0, 0, w, h), lm);
   if (realDet.flicker != null) camera.add(realDet.flicker);
-  realDet.score(camera.baseline); fakeDet.score(camera.baseline);
+  realDet.score(camera.baseline);
+
+  if (AI.on && AI.latent) {
+    // The network runs at its own pace: start a new swap whenever the last one is done.
+    if (!AI.busy) {
+      AI.busy = true;
+      const still = document.createElement('canvas');
+      still.width = w; still.height = h;
+      still.getContext('2d').drawImage(realCanvas, 0, 0);
+      const stillLm = lm.map((p) => ({ ...p }));
+      AI.render(still, stillLm, fakeCtx).then(() => {
+        if (!AI.on) return;
+        fakeDet.update(fakeCtx.getImageData(0, 0, w, h), stillLm);
+        fakeDet.score(camera.baseline);
+      }).catch(aiFailed).finally(() => { AI.busy = false; });
+    }
+  } else {
+    fakeCtx.drawImage(realCanvas, 0, 0);
+    renderSwap(lm, realCanvas);
+    fakeCtx.drawImage(glCanvas, 0, 0);
+    fakeDet.update(fakeCtx.getImageData(0, 0, w, h), lm);
+    fakeDet.score(camera.baseline);
+  }
   showResult($('realCard'), realDet); showResult($('fakeCard'), fakeDet);
   if (realDet.prob != null) { history.real.push(realDet.prob); history.fake.push(fakeDet.prob); drawChart(); }
 }
@@ -584,7 +839,9 @@ async function start() {
   for (const c of [realCanvas, fakeCanvas]) { c.width = video.videoWidth; c.height = video.videoHeight; }
   for (const v of document.querySelectorAll('.view')) v.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
   initGL(video.videoWidth, video.videoHeight);
-  $('snapBtn').disabled = $('photoBtn').disabled = false;
+  $('snapBtn').disabled = $('photoBtn').disabled = $('aiBtn').disabled = false;
+  $('meshBtn').onclick = () => setMethod(false);
+  $('aiBtn').onclick = () => setMethod(true);
   $('snapBtn').onclick = snapshotDonor;
   $('photoBtn').onclick = () => $('photoInput').click();
   $('photoInput').onchange = (e) => {
