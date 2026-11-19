@@ -59,6 +59,9 @@
   .seg button.active { background: #232a3d; box-shadow: none; }
   #aiInfo, #detInfo { color: var(--muted); font-size: 13px; }
   .seg.wrap { flex-wrap: wrap; border-radius: 18px; }
+  #thrSlider { width: 180px; accent-color: var(--accent); }
+  #thrVal { font-variant-numeric: tabular-nums; min-width: 3ch; }
+  #calInfo { color: var(--muted); font-size: 13px; }
   .progress { width: 160px; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; display: none; }
   .progress.show { display: block; }
   .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
@@ -107,6 +110,14 @@
   </div>
 
   <div class="controls">
+    <span class="label">Alert at</span>
+    <input type="range" id="thrSlider" min="50" max="99" value="70" aria-label="Alert threshold">
+    <b id="thrVal">70%</b>
+    <button id="calBtn" disabled>Calibrate on my camera</button>
+    <span id="calInfo"></span>
+  </div>
+
+  <div class="controls">
     <span class="label">Swap in</span>
     <div class="presets" id="presets"></div>
     <button id="snapBtn" disabled>My own face</button>
@@ -116,15 +127,16 @@
   </div>
 
   <section class="card chart">
-    <h2>Fake probability <span style="color:var(--green)">original</span><span style="color:var(--red)">deepfake</span><span style="color:var(--muted)">alert threshold 70%</span></h2>
+    <h2>Fake probability <span style="color:var(--green)">original</span><span style="color:var(--red)">deepfake</span><span style="color:var(--muted)" id="thrLegend">alert threshold 70%</span></h2>
     <canvas id="chart"></canvas>
   </section>
 
   <p class="note">
     Runs entirely in this browser tab; no video leaves your machine. Detectors: "Noise check" is a hand-written rule
     that flags a face with less camera noise than your camera normally has. The others are trained deepfake
-    detectors from DeepfakeBench (trained on FaceForensics++), run on a face crop with the same 15-frame
-    smoothing and 70% threshold as the project's frame server. Preset faces are synthetic (people who do not exist), from the SFHQ dataset.
+    detectors from DeepfakeBench (trained on FaceForensics++), run on a face crop, with 15-check
+    averaging. Each detector has its own alert threshold: drag the slider, or press "Calibrate on my camera" to set
+    it from how that detector scores your real face. Preset faces are synthetic (people who do not exist), from the SFHQ dataset.
     The AI swap uses InsightFace's inswapper_128 network (non-commercial research licence), run on your GPU with WebGPU.
   </p>
 </main>
@@ -137,9 +149,12 @@ import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@m
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
-// Same knobs as the project's frame server.
+// Scores are averaged over the last 15 checks; each detector has its own alert
+// threshold (default 70%), set with the slider or by calibrating on the camera.
 const SMOOTHING_WINDOW = 15;
-const ALERT_THRESHOLD = 0.7;
+const DEFAULT_THRESHOLD = 0.7;
+const thresholds = {};
+const threshold = () => thresholds[DET.name] ?? DEFAULT_THRESHOLD;
 
 const N_LM = 468; // face mesh points (iris points are ignored)
 
@@ -642,12 +657,10 @@ const DETECTORS = {
   meso4Inception: { label: 'MesoInception-4', file: 'models/detectors/meso4Inception.onnx', size: '0.1 MB', info: 'Tiny 2018 network with inception blocks.' },
   efficientnetb4: { label: 'EfficientNet-B4', file: 'models/detectors/efficientnetb4_w16.onnx', size: '35 MB', info: 'Strong general image network.' },
   xception: { label: 'Xception', file: 'models/detectors/xception_w16.onnx', size: '42 MB', info: 'The classic FaceForensics++ baseline.' },
-  f3net: { label: 'F3Net', file: 'models/detectors/f3net_w16.onnx', size: '43 MB', info: "Xception plus frequency analysis: the project's architecture." },
-  // Added automatically when models/detectors/f3net_custom_w16.onnx exists (see tools/build_detectors.py).
-  f3net_custom: { label: 'Project F3Net', file: 'models/detectors/f3net_custom_w16.onnx', size: '43 MB', info: "The project's own fine-tuned F3Net, with the frame server's face crop.", crop: 'project', optional: true },
+  f3net: { label: 'F3Net', file: 'models/detectors/f3net_w16.onnx', size: '43 MB', info: 'Xception plus frequency (DCT) analysis.' },
 };
 
-// Rolling average of a model's per-frame P(fake), like the frame server's smoothing window.
+// Rolling average of a model's per-check P(fake).
 class ModelScore {
   constructor() { this.reset(); }
   reset() { this.window = []; this.prob = null; this.raw = null; }
@@ -661,23 +674,15 @@ class ModelScore {
 const DET = { name: 'noise', sessions: {}, busy: false, loading: null, real: new ModelScore(), fake: new ModelScore(), times: [] };
 let fakeLm = null; // landmarks for the frame currently shown in the deepfake feed
 
-// Square face crop, 256x256, as planar RGB in [-1, 1].
-//   'dfb'     – DeepfakeBench style: 1.3x the face box, centred on the face.
-//   'project' – the frame server's crop: 1.5x the face box, at least 70% of the
-//               frame's short side, kept inside the frame.
+// Square face crop, 256x256, as planar RGB in [-1, 1]: 1.3x the face box,
+// centred on the face, as in DeepfakeBench's preprocessing.
 const detCanvas = document.createElement('canvas');
 detCanvas.width = detCanvas.height = 256;
 const detCtx = detCanvas.getContext('2d', { willReadFrequently: true });
-function faceCrop(source, lm, style, out, offset) {
+function faceCrop(source, lm, out, offset) {
   const w = source.width, h = source.height, b = faceBox(lm);
   const bw = (b.maxX - b.minX) * w, bh = (b.maxY - b.minY) * h;
-  let cx = (b.minX + b.maxX) / 2 * w, cy = (b.minY + b.maxY) / 2 * h, side;
-  if (style === 'project') {
-    side = Math.min(Math.max(Math.max(bw, bh) * 1.5, Math.min(w, h) * 0.7), Math.min(w, h));
-    cx = Math.min(Math.max(cx, side / 2), w - side / 2); cy = Math.min(Math.max(cy, side / 2), h - side / 2);
-  } else {
-    side = Math.max(bw, bh) * 1.3;
-  }
+  const cx = (b.minX + b.maxX) / 2 * w, cy = (b.minY + b.maxY) / 2 * h, side = Math.max(bw, bh) * 1.3;
   detCtx.fillStyle = '#000'; detCtx.fillRect(0, 0, 256, 256);
   detCtx.imageSmoothingQuality = 'high';
   detCtx.drawImage(source, cx - side / 2, cy - side / 2, side, side, 0, 0, 256, 256);
@@ -689,14 +694,14 @@ function runDetector(lm) {
   const session = DET.sessions[DET.name];
   if (!session || DET.busy || !fakeLm) return;
   DET.busy = true;
-  const style = DETECTORS[DET.name].crop || 'dfb', n = 3 * 256 * 256, input = new Float32Array(2 * n);
-  faceCrop(realCanvas, lm, style, input, 0);
-  faceCrop(fakeCanvas, fakeLm, style, input, n);
+  const n = 3 * 256 * 256, input = new Float32Array(2 * n);
+  faceCrop(realCanvas, lm, input, 0);
+  faceCrop(fakeCanvas, fakeLm, input, n);
   const name = DET.name;
   session.run({ image: new AI.ort.Tensor('float32', input, [2, 3, 256, 256]) }).then((res) => {
     if (DET.name !== name) return;
     const p = res.prob.data;
-    DET.real.add(p[0]); DET.fake.add(p[1]);
+    DET.real.add(p[0]); DET.fake.add(p[1]); DET.checks = (DET.checks || 0) + 1;
     DET.times.push(performance.now());
     if (DET.times.length > 10) DET.times.shift();
     if (DET.times.length > 2 && !$('detProgress').classList.contains('show')) {
@@ -717,8 +722,10 @@ async function selectDetector(name) {
   const d = DETECTORS[name];
   for (const b of $('detSeg').children) b.classList.toggle('active', b.dataset.det === name);
   DET.real.reset(); DET.fake.reset(); DET.times = [];
+  $('calInfo').textContent = '';
   if (name === 'noise' || DET.sessions[name]) {
     DET.name = name;
+    showThreshold();
     $('detInfo').textContent = d.info;
     return;
   }
@@ -733,17 +740,54 @@ async function selectDetector(name) {
       $('detInfo').textContent = `Starting ${d.label}…`;
       DET.sessions[name] = await AI.session(bytes);
       $('detProgress').classList.remove('show');
-      if ([...$('detSeg').children].find((b) => b.dataset.det === name)?.classList.contains('active')) { DET.name = name; $('detInfo').textContent = d.info; }
+      if ([...$('detSeg').children].find((b) => b.dataset.det === name)?.classList.contains('active')) { DET.name = name; showThreshold(); $('detInfo').textContent = d.info; }
     } catch (e) { detFailed(e); }
     finally { DET.loading = null; }
   })();
 }
 
+// Threshold for the current detector.
+function showThreshold() {
+  const t = Math.round(threshold() * 100);
+  $('thrSlider').value = t; $('thrVal').textContent = t + '%';
+  $('thrLegend').textContent = `alert threshold ${t}%`;
+}
+function setThreshold(t, note = '') {
+  thresholds[DET.name] = t; showThreshold();
+  $('calInfo').textContent = note;
+}
+
+// Calibration: watch the original (real) feed for a few seconds and put the
+// threshold just above the scores the detector gives your real face, so the
+// original feed stays below it about 95% of the time.
+const CAL = { active: false, samples: [], checks: 0, start: 0, name: '' };
+function startCalibration() {
+  Object.assign(CAL, { active: true, samples: [], checks: 0, start: performance.now(), name: DET.name });
+  $('calBtn').disabled = true;
+  $('calInfo').textContent = 'Calibrating: look at the camera normally…';
+}
+function calibrationStep(prob, newCheck) {
+  if (!CAL.active) return;
+  if (DET.name !== CAL.name) { CAL.active = false; $('calBtn').disabled = false; $('calInfo').textContent = ''; return; }
+  if (prob != null) CAL.samples.push(prob);
+  if (newCheck) CAL.checks++;
+  const secs = (performance.now() - CAL.start) / 1000;
+  if (secs < 8 || CAL.checks < 12) {
+    if (secs > 90) { CAL.active = false; $('calBtn').disabled = false; $('calInfo').textContent = 'Calibration timed out: this detector is too slow here.'; }
+    return;
+  }
+  CAL.active = false; $('calBtn').disabled = false;
+  const v = CAL.samples.sort((a, b) => a - b), p95 = v[Math.floor(v.length * 0.95)];
+  const t = Math.min(0.99, Math.max(0.5, p95 + 0.05));
+  setThreshold(Math.round(t * 100) / 100, p95 + 0.05 > 0.99
+    ? 'This detector rates your real face as fake almost all the time, so no threshold can separate them here.'
+    : `Calibrated: your real face scored up to ${Math.round(p95 * 100)}%, so alerts start at ${Math.round(t * 100)}%.`);
+}
+
 async function initDetectors() {
+  $('thrSlider').oninput = () => setThreshold(Number($('thrSlider').value) / 100, 'Set by hand');
+  $('calBtn').onclick = startCalibration;
   for (const [name, d] of Object.entries(DETECTORS)) {
-    if (d.optional) {
-      try { if (!(await fetch(d.file, { method: 'HEAD' })).ok) continue; } catch { continue; }
-    }
     const b = document.createElement('button');
     b.textContent = d.label; b.dataset.det = name;
     b.title = d.info + (d.size ? ` (${d.size} download)` : '');
@@ -842,10 +886,10 @@ class Detector {
 function showResult(card, det) {
   const verdict = card.querySelector('.verdict'), pct = card.querySelector('.pct'), bar = card.querySelector('.bar i'), detail = card.querySelector('.detail');
   if (det.prob == null) { card.className = 'card'; verdict.textContent = lastLm ? 'Calibrating…' : 'Waiting…'; pct.textContent = '–'; bar.style.width = '0'; detail.textContent = ''; return; }
-  const fake = det.prob >= ALERT_THRESHOLD, p = Math.round(det.prob * 100);
+  const fake = det.prob >= threshold(), p = Math.round(det.prob * 100);
   card.className = 'card ' + (fake ? 'fake' : 'real');
   if (det instanceof ModelScore) {
-    detail.textContent = `${DETECTORS[DET.name].label}: this frame ${Math.round(det.raw * 100)}% fake, averaged over ${det.window.length} frames`;
+    detail.textContent = `${DETECTORS[DET.name].label}: this frame ${Math.round(det.raw * 100)}% fake, averaged over ${det.window.length} checks`;
   } else {
     card.dataset.ratio = det.level.toFixed(2);
     detail.textContent = `Face noise is ${det.level.toFixed(2)}× this camera's normal level`;
@@ -866,7 +910,7 @@ function drawChart() {
   chartCtx.clearRect(0, 0, w, h);
   const yOf = (p) => 3 + (1 - p) * (h - 6);
   chartCtx.strokeStyle = '#3a4152'; chartCtx.lineWidth = 1; chartCtx.setLineDash([4, 5]);
-  chartCtx.beginPath(); chartCtx.moveTo(0, yOf(ALERT_THRESHOLD)); chartCtx.lineTo(w, yOf(ALERT_THRESHOLD)); chartCtx.stroke();
+  chartCtx.beginPath(); chartCtx.moveTo(0, yOf(threshold())); chartCtx.lineTo(w, yOf(threshold())); chartCtx.stroke();
   chartCtx.setLineDash([]); chartCtx.lineWidth = 2; chartCtx.lineJoin = 'round';
   for (const [key, color] of [['real', '#3ddc84'], ['fake', '#ff5a5f']]) {
     const pts = history[key];
@@ -955,6 +999,8 @@ function frame() {
   }
   if (DET.name !== 'noise') runDetector(lm);
   const [shownReal, shownFake] = DET.name === 'noise' ? [realDet, fakeDet] : [DET.real, DET.fake];
+  const checks = DET.name === 'noise' ? (realDet.prob != null ? (CAL.lastChecks || 0) + 1 : 0) : (DET.checks || 0);
+  calibrationStep(shownReal.prob, checks !== CAL.lastChecks); CAL.lastChecks = checks;
   showResult($('realCard'), shownReal); showResult($('fakeCard'), shownFake);
   if (realDet.prob != null || shownReal.prob != null) { history.real.push(shownReal.prob); history.fake.push(shownFake.prob); drawChart(); }
 }
@@ -976,7 +1022,7 @@ async function start() {
   for (const c of [realCanvas, fakeCanvas]) { c.width = video.videoWidth; c.height = video.videoHeight; }
   for (const v of document.querySelectorAll('.view')) v.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
   initGL(video.videoWidth, video.videoHeight);
-  $('snapBtn').disabled = $('photoBtn').disabled = $('aiBtn').disabled = false;
+  $('snapBtn').disabled = $('photoBtn').disabled = $('aiBtn').disabled = $('calBtn').disabled = false;
   $('meshBtn').onclick = () => setMethod(false);
   $('aiBtn').onclick = () => setMethod(true);
   $('snapBtn').onclick = snapshotDonor;

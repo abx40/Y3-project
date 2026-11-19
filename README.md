@@ -36,10 +36,13 @@ Internet access is needed on first load to fetch the face tracker.
   - **Meso-4**, **MesoInception-4** (0.1 MB each), **EfficientNet-B4** (35 MB),
     **Xception** (42 MB), **F3Net** (43 MB) – trained detectors, downloaded
     when first picked.
-  - **Project F3Net** – appears only if the project's own fine-tuned F3Net has
-    been added (see below).
-- Under each feed is the fake probability; the chart shows both over time, with
-  the same 15-frame smoothing and 70% alert threshold as the frame server.
+- **Alert at** – each detector has its own alert threshold (default 70%).
+  Drag the slider, or press **Calibrate on my camera**: it watches the
+  original feed for a few seconds and sets the threshold just above the scores
+  that detector gives your real face (5 points above its 95th percentile), so
+  the original feed stays below the line.
+- Under each feed is the fake probability, averaged over the last 15 checks;
+  the chart shows both over time.
 
 ## How it works (and what it is not)
 
@@ -63,8 +66,7 @@ Internet access is needed on first load to fetch the face tracker.
   gets a square face crop (1.3× the face, 256×256, scaled to [-1, 1]), as in
   DeepfakeBench. Expect false alarms: detectors trained only on FaceForensics++
   are known to generalise poorly to other cameras and lighting, so the original
-  feed can score as fake too. That is the generalisation problem the project's
-  DF40-trained, fine-tuned F3Net is meant to address.
+  feed can score as fake too; calibrating on your camera helps with that.
 
 Nothing is uploaded; all processing happens in the browser tab.
 
@@ -89,19 +91,6 @@ To rebuild the detectors:
 pip install torch efficientnet_pytorch onnx onnxruntime numpy pyyaml
 python3 demo/tools/build_detectors.py
 ```
-
-### Adding the project's own F3Net
-
-```bash
-python3 demo/tools/build_detectors.py --only-custom --f3net-checkpoint path/to/f3net_finetuned_best.pth
-```
-
-This writes `demo/models/detectors/f3net_custom_w16.onnx` (about 43 MB). Copy
-it to `models/detectors/` on the `gh-pages` branch and push; the page then shows
-a **Project F3Net** button. That model uses the frame server's face crop (1.5×
-the face box, at least 70% of the frame's short side), with face boxes from
-MediaPipe instead of the Haar cascade, so scores will differ a little from the
-frame server's.
 
 ## Credits
 
