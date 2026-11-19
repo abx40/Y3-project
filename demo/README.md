@@ -36,11 +36,12 @@ Internet access is needed on first load to fetch the face tracker.
   - **Meso-4**, **MesoInception-4** (0.1 MB each), **EfficientNet-B4** (35 MB),
     **Xception** (42 MB), **F3Net** (43 MB) – trained detectors, downloaded
     when first picked.
-- **Alert at** – each detector has its own alert threshold (default 70%).
-  Drag the slider, or press **Calibrate on my camera**: it watches the
-  original feed for a few seconds and sets the threshold just above the scores
-  that detector gives your real face (5 points above its 95th percentile), so
-  the original feed stays below the line.
+- **Alert at** – each detector calibrates itself automatically during its first
+  5 seconds of scores. It watches how it scores your real face in the original
+  feed and sets the alert threshold just above that (5 points above the 95th
+  percentile, between 50% and 99%), so the original feed stays below the line.
+  The cards show "Calibrating…" until then. Drag the slider to set it by hand,
+  or press **Recalibrate** (for example after the lighting changes).
 - Under each feed is the fake probability, averaged over the last 15 checks;
   the chart shows both over time.
 
