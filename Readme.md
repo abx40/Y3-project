@@ -40,8 +40,9 @@ and [`experiments/results_roc_10s_scope_summaries_2026-04-20/roc_10s_test_summar
 ## Method
 
 - **Detectors.** Six backends covering spatial, frequency-aware and temporal model families: F3Net,
-  Xception, EfficientNet-B4, Effort (CLIP ViT-L/14), I3D and VideoMAE. Each starts from a public
-  pretrained checkpoint (mostly DeepfakeBench) and was fine-tuned on this project's benchmark.
+  Xception, EfficientNet-B4, Effort (CLIP ViT-L/14), I3D and VideoMAE. All six detectors were
+  fine-tuned for this project on FaceForensics++ and Celeb-DF; the reported results use these
+  fine-tuned weights.
 - **Benchmark.** 591 unique source clips from FaceForensics++ (C23, six manipulation methods) and
   Celeb-DF, with splits grouped by identity so the same person never appears in both training and test
   data. Fine-tuning used 4,587 training and 637 validation clips.
@@ -126,7 +127,8 @@ evaluation used for the results above is documented in [`automation/windows/READ
 
 ## Acknowledgements
 
-Supervised by Prof. Gaven Smith. Detector implementations and pretrained weights come from
-[DeepfakeBench](https://github.com/SCLBD/DeepfakeBench) and the original model authors; datasets are
+Supervised by Prof. Gaven Smith. Model implementations come from
+[DeepfakeBench](https://github.com/SCLBD/DeepfakeBench) and the original authors; all weights used in
+this project were fine-tuned here. Datasets are
 FaceForensics++ and Celeb-DF, used under their research licences and not redistributed here. The bot and
 web client are built on Zoom's Video SDK samples, which are subject to Zoom's SDK terms.
