@@ -14,22 +14,32 @@ __pycache__/
 # Logs
 *.log
 *.log.*
+results/
+results_scored/
+results_scored_v2/
+results_diagnostics/
 
-# Built assets / node modules
+# Built assets / node modules (not present, but keep them out)
 node_modules/
+tools/
 
-# Local environment / credentials
-.env
-.env.*
-!.env.example
-**/.env
-**/.env.*
-!**/.env.example
+# Frame server local artifacts
+zoom-frame-server/venv/
+zoom-frame-server/frames/
+zoom-frame-server/model.safetensors
+zoom-frame-server/config*.json
+zoom-frame-server/preprocessor_config*.json
+zoom-frame-server/models/train_on_df40/
+zoom-frame-server/models/aasist/
+zoom-frame-server/models/pretrained.zip
+zoom-frame-server/tmp-ffpp/
+zoom-frame-server/zoom-frame-server.code-workspace
 
-# Generated Zoom credentials / session config
-**/token.txt
-videosdk-linux-raw-recording-sample/config.txt
-videosdk-linux-raw-recording-sample/bin/config.txt
+# Local secrets
+zoom-token-server/.env
 
-# Skip the frame analyzer (maintained separately)
-zoom-frame-server/
+# Demo run output and local tooling
+zoom-frame-server/logs/
+.claude/
+# ONNX exports are published to Hugging Face, not committed (see demo/README.md)
+onnx_export/

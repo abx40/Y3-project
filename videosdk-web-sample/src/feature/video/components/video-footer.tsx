@@ -1,4 +1,4 @@
-import { useState, useCallback, useContext, useEffect } from 'react';
+import { useState, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import classNames from 'classnames';
 import { message, Modal, Form, Select, Checkbox, Tooltip } from 'antd';
 import { useSearchParams } from 'react-router';
@@ -13,6 +13,7 @@ import { useUnmount, useMount } from '../../../hooks';
 import type { MediaDevice } from '../video-types';
 import './video-footer.scss';
 import { isAndroidOrIOSBrowser } from '../../../utils/platform';
+import { findDeviceByLabel, getAutomationConfig, logAutomationEvent } from '../../../utils/automation';
 import { getPhoneCallStatusDescription } from '../video-constants';
 import { type RecordButtonProps, getRecordingButtons, RecordingButton } from './recording';
 import {
@@ -41,6 +42,16 @@ interface VideoFooterProps {
   className?: string;
   selfShareCanvas?: HTMLCanvasElement | HTMLVideoElement | null;
   sharing?: boolean;
+}
+
+function areSameDeviceLists(left: MediaDevice[], right: MediaDevice[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every(
+    (device, index) =>
+      device.deviceId === right[index]?.deviceId && device.label === right[index]?.label
+  );
 }
 
 const isAudioEnable = typeof AudioWorklet === 'function';
@@ -96,6 +107,11 @@ const VideoFooter = (props: VideoFooterProps) => {
 
   const [secondaryMicForm] = Form.useForm();
   const [searchParams] = useSearchParams();
+  const automationConfig = useMemo(() => getAutomationConfig(searchParams), [searchParams]);
+  const autoVideoInFlightRef = useRef(false);
+  const autoVideoCompletedRef = useRef(false);
+  const autoVideoMissingCameraLoggedRef = useRef(false);
+  const cameraInventorySourceRef = useRef<'sdk' | 'browser'>('sdk');
   const audioProcessorList: Array<ProcessorParams> = [
     {
       url: `${location.origin}/static/processors/bypass-audio-processor.js`,
@@ -121,6 +137,19 @@ const VideoFooter = (props: VideoFooterProps) => {
     setIsMuted(!!currentUser?.muted);
     setIsStartedVideo(!!currentUser?.bVideoOn);
   });
+  useEffect(() => {
+    if (!mediaStream) {
+      return;
+    }
+    setMicList(mediaStream.getMicList() ?? []);
+    setSpeakerList(mediaStream.getSpeakerList() ?? []);
+    if (!isAndroidOrIOSBrowser()) {
+      setCameraList(mediaStream.getCameraList() ?? []);
+    }
+    setActiveMicrophone(mediaStream.getActiveMicrophone());
+    setActiveSpeaker(mediaStream.getActiveSpeaker());
+    setActiveCamera(mediaStream.getActiveCamera());
+  }, [mediaStream]);
   const onCameraClick = useCallback(async () => {
     if (isStartedVideo) {
       await mediaStream?.stopVideo();
@@ -363,11 +392,13 @@ const VideoFooter = (props: VideoFooterProps) => {
 
   const onLeaveClick = useCallback(async () => {
     await zmClient.leave();
-  }, [zmClient]);
+    void logAutomationEvent(automationConfig, 'leave_requested', {});
+  }, [automationConfig, zmClient]);
 
   const onEndClick = useCallback(async () => {
     await zmClient.leave(true);
-  }, [zmClient]);
+    void logAutomationEvent(automationConfig, 'leave_requested', { end: true });
+  }, [automationConfig, zmClient]);
 
   const onPassivelyStopShare = useCallback(({ reason }: any) => {
     console.log('passively stop reason:', reason);
@@ -641,6 +672,156 @@ const VideoFooter = (props: VideoFooterProps) => {
       }
     }
   });
+  useEffect(() => {
+    if (!automationConfig.autoStartVideo || !mediaStream || !zmClient.getSessionInfo()?.isInMeeting) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const refreshCameraInventory = async () => {
+      let nextCameraList = mediaStream.getCameraList() ?? [];
+      let inventorySource: 'sdk' | 'browser' = 'sdk';
+      if (!nextCameraList.length && navigator.mediaDevices?.enumerateDevices) {
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          nextCameraList = devices
+            .filter((device) => device.kind === 'videoinput')
+            .map((device) => ({
+              deviceId: device.deviceId,
+              label: device.label || 'Unnamed camera'
+            }));
+          inventorySource = 'browser';
+        } catch (error: any) {
+          void logAutomationEvent(automationConfig, 'camera_inventory_failed', {
+            error: error?.message ?? String(error)
+          });
+          return;
+        }
+      }
+
+      if (cancelled || !nextCameraList.length) {
+        return;
+      }
+
+      cameraInventorySourceRef.current = inventorySource;
+      setCameraList((current) => (areSameDeviceLists(current, nextCameraList) ? current : nextCameraList));
+      if (!activeCamera) {
+        setActiveCamera(mediaStream.getActiveCamera());
+      }
+    };
+
+    void refreshCameraInventory();
+    const intervalId = window.setInterval(() => {
+      if (!autoVideoCompletedRef.current) {
+        void refreshCameraInventory();
+      }
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeCamera, automationConfig, mediaStream, zmClient]);
+  useEffect(() => {
+    if (!automationConfig.autoStartVideo || !automationConfig.cameraLabelContains || !mediaStream) {
+      return;
+    }
+    if (
+      !zmClient.getSessionInfo()?.isInMeeting ||
+      autoVideoInFlightRef.current ||
+      autoVideoCompletedRef.current
+    ) {
+      return;
+    }
+
+    let targetCamera = findDeviceByLabel(cameraList, automationConfig.cameraLabelContains);
+    if (!targetCamera && cameraList.length === 1) {
+      targetCamera = cameraList[0];
+    }
+    if (!targetCamera && cameraList.length === 0) {
+      return;
+    }
+    if (!targetCamera) {
+      if (!autoVideoMissingCameraLoggedRef.current) {
+        autoVideoMissingCameraLoggedRef.current = true;
+        void logAutomationEvent(automationConfig, 'camera_missing', {
+          cameraLabelContains: automationConfig.cameraLabelContains,
+          availableCameras: cameraList.map((camera) => camera.label)
+        });
+      }
+      return;
+    }
+
+    autoVideoMissingCameraLoggedRef.current = false;
+    autoVideoInFlightRef.current = true;
+    let isCancelled = false;
+
+    const runAutomation = async () => {
+      try {
+        const canSwitchCamera = cameraInventorySourceRef.current === 'sdk';
+        if (canSwitchCamera && activeCamera !== targetCamera.deviceId) {
+          await mediaStream.switchCamera(targetCamera.deviceId);
+          if (isCancelled) {
+            return;
+          }
+          setActiveCamera(mediaStream.getActiveCamera());
+        }
+
+        void logAutomationEvent(automationConfig, 'camera_selected', {
+          deviceId: targetCamera.deviceId,
+          label: targetCamera.label,
+          matchedBy: findDeviceByLabel(cameraList, automationConfig.cameraLabelContains) ? 'label' : 'single-camera-fallback',
+          inventorySource: cameraInventorySourceRef.current
+        });
+
+        if (!isStartedVideo) {
+          const startVideoOptions: Record<string, unknown> = {
+            hd: true,
+            fullHd: true,
+            ptz: mediaStream.isBrowserSupportPTZ(),
+            originalRatio: true
+          };
+          if (mediaStream.isSupportVirtualBackground() && isBlur) {
+            Object.assign(startVideoOptions, { virtualBackground: { imageUrl: 'blur' } });
+          }
+          await mediaStream.startVideo(startVideoOptions);
+          if (isCancelled) {
+            return;
+          }
+        }
+
+        void logAutomationEvent(automationConfig, 'video_started', {
+          deviceId: targetCamera.deviceId,
+          label: targetCamera.label
+        });
+        autoVideoCompletedRef.current = true;
+      } catch (error: any) {
+        autoVideoInFlightRef.current = false;
+        void logAutomationEvent(automationConfig, 'video_start_failed', {
+          error: error?.reason ?? error?.message ?? String(error)
+        });
+        return;
+      }
+
+      autoVideoInFlightRef.current = false;
+    };
+
+    void runAutomation();
+
+    return () => {
+      isCancelled = true;
+      autoVideoInFlightRef.current = false;
+    };
+  }, [
+    activeCamera,
+    automationConfig,
+    cameraList,
+    isBlur,
+    isStartedVideo,
+    mediaStream,
+    zmClient
+  ]);
   useEffect(() => {
     if (mediaStream && zmClient.getSessionInfo().isInMeeting && statisticVisible) {
       mediaStream.subscribeAudioStatisticData();

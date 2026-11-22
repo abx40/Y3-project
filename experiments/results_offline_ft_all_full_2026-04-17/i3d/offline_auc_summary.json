@@ -1,0 +1,86 @@
+{
+  "calibration": {
+    "rows": 5258,
+    "auc_raw": 0.533044003783893,
+    "fake_rate": 0.4463674400912895,
+    "mean_score_raw": 0.6638359256505332,
+    "by_kind": {
+      "fake_only": {
+        "rows": 1167,
+        "auc_raw": null,
+        "fake_rate": 1.0,
+        "mean_score_raw": 0.6711289941907032
+      },
+      "mixed": {
+        "rows": 2341,
+        "auc_raw": 0.5152542372881356,
+        "fake_rate": 0.5040580948312687,
+        "mean_score_raw": 0.6623761919714966
+      },
+      "real_only": {
+        "rows": 1750,
+        "auc_raw": null,
+        "fake_rate": 0.0,
+        "mean_score_raw": 0.6609251973969595
+      }
+    }
+  },
+  "validation": {
+    "rows": 2925,
+    "auc_raw": 0.5957043614706369,
+    "fake_rate": 0.5039316239316239,
+    "mean_score_raw": 0.6581856677471063,
+    "by_kind": {
+      "fake_only": {
+        "rows": 585,
+        "auc_raw": null,
+        "fake_rate": 1.0,
+        "mean_score_raw": 0.6571767026542599
+      },
+      "mixed": {
+        "rows": 1755,
+        "auc_raw": 0.5903667353359121,
+        "fake_rate": 0.5065527065527066,
+        "mean_score_raw": 0.6646608922895882
+      },
+      "real_only": {
+        "rows": 585,
+        "auc_raw": null,
+        "fake_rate": 0.0,
+        "mean_score_raw": 0.639768959212507
+      }
+    }
+  },
+  "test": {
+    "rows": 2924,
+    "auc_raw": 0.5468408393487659,
+    "fake_rate": 0.5017099863201094,
+    "mean_score_raw": 0.6621713788540353,
+    "by_kind": {
+      "fake_only": {
+        "rows": 584,
+        "auc_raw": null,
+        "fake_rate": 1.0,
+        "mean_score_raw": 0.6759677107815873
+      },
+      "mixed": {
+        "rows": 1755,
+        "auc_raw": 0.5019487620393362,
+        "fake_rate": 0.5031339031339032,
+        "mean_score_raw": 0.6603086254875205
+      },
+      "real_only": {
+        "rows": 585,
+        "auc_raw": null,
+        "fake_rate": 0.0,
+        "mean_score_raw": 0.6539868904994084
+      }
+    }
+  },
+  "all": {
+    "rows": 11107,
+    "auc_raw": 0.5514444147049197,
+    "fake_rate": 0.4760961555775637,
+    "mean_score_raw": 0.6619097404339596
+  }
+}

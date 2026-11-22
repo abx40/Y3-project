@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deepfake Ops Deck — Live</title>
+<meta name="description" content="Deepfake detection running client-side with ONNX Runtime Web: the project's fine-tuned backends plus a third-party test model, on WebGPU or WASM.">
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --txt:#e6e8ee;
+          --muted:#98a0b0; --fake:#ff6b6b; --real:#4ecdc4; --accent:#7aa2f7; --warn:#e0af68; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+         font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:1000px; margin:0 auto; padding:28px 16px 56px; }
+  h1 { font-size:24px; margin:0 0 6px; letter-spacing:-.01em; }
+  h2 { font-size:15px; margin:0 0 4px; }
+  p.sub, .note { color:var(--muted); font-size:13px; }
+  p.sub { margin:0 0 12px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+           padding:16px; margin:16px 0; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  select,button,label.btn { background:var(--bg); color:var(--txt); border:1px solid var(--line);
+    border-radius:8px; padding:8px 11px; font-size:13px; font-family:inherit; cursor:pointer; max-width:100%; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  button:disabled, select:disabled { opacity:.45; cursor:not-allowed; }
+  label.chk { font-size:13px; color:var(--muted); display:inline-flex; gap:6px; align-items:center; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:10px; }
+  .tile { background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:11px 13px; }
+  .tile .k { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
+  .tile .v { font-size:21px; font-weight:600; font-variant-numeric:tabular-nums; margin-top:3px; }
+  canvas#chart { width:100%; height:230px; display:block; }
+  canvas#view { width:100%; max-width:420px; border-radius:9px; background:#000; display:block; }
+  .viewbox { position:relative; width:100%; max-width:420px; }
+  /* The raw feed stays visible: Chrome pauses hidden muted video "to save power". */
+  .viewbox .thumb { position:absolute; right:8px; bottom:8px; width:28%; border-radius:6px; overflow:hidden;
+                    border:1px solid var(--line); background:#000; }
+  .viewbox .thumb video { width:100%; display:block; }
+  .viewbox .thumb span { position:absolute; left:4px; top:2px; font-size:10px; color:#fff;
+                         text-shadow:0 0 3px #000; }
+  label.btn:has(input:disabled) { opacity:.45; cursor:not-allowed; }
+  .bar { height:6px; background:var(--bg); border:1px solid var(--line);
+         border-radius:99px; overflow:hidden; margin-top:10px; }
+  .bar > i { display:block; height:100%; width:0%; background:var(--accent); transition:width .2s; }
+  .pill { display:inline-block; font-size:11px; padding:3px 9px; border-radius:99px;
+          border:1px solid var(--line); color:var(--muted); }
+  .flex { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+  .flex > .grow { flex:1; min-width:260px; }
+  table { border-collapse:collapse; font-size:13px; font-variant-numeric:tabular-nums; }
+  td, th { padding:3px 12px 3px 0; text-align:left; }
+  th { color:var(--muted); font-weight:500; }
+  .banner { border:1px solid var(--warn); color:var(--warn); border-radius:9px; padding:9px 12px;
+            font-size:13px; margin:10px 0 0; }
+  .ok { color:var(--real); } .bad { color:var(--fake); } .warn { color:var(--warn); }
+  .legend i { display:inline-block; width:14px; height:3px; vertical-align:middle; margin:0 5px 0 10px; }
+  a { color:var(--accent); }
+  code { background:var(--bg); padding:1px 5px; border-radius:4px; font-size:12px; }
+</style></head><body><div class="wrap">
+
+<h1>Deepfake detection, running in your browser</h1>
+<p class="sub">No upload, no server. Models are fetched once and run entirely on your machine &mdash;
+WebGPU when available, WASM otherwise. Camera frames never leave the page.</p>
+
+<div class="panel">
+  <h2>Model</h2>
+  <p class="sub">One model is loaded at a time; switching releases the previous one.</p>
+  <div class="row">
+    <select id="model" aria-label="Model"></select>
+    <select id="precision" aria-label="Precision"></select>
+    <select id="ep" aria-label="Compute backend">
+      <option value="auto" selected>Backend: auto</option>
+      <option value="webgpu">Force WebGPU</option>
+      <option value="wasm">Force WASM (CPU)</option>
+    </select>
+    <button class="primary" id="loadBtn">Load model</button>
+    <span class="pill" id="epPill">not loaded</span>
+  </div>
+  <div class="bar"><i id="prog"></i></div>
+  <div id="modelInfo" class="note" style="margin:10px 0 0;"></div>
+  <div id="untrained" class="banner" hidden></div>
+</div>
+
+<div class="panel">
+  <h2>Input</h2>
+  <p class="sub">The camera stays local. The self-test needs no camera and no file &mdash; use it to confirm the pipeline runs.</p>
+  <div class="row" style="margin-bottom:10px;">
+    <button id="camBtn" disabled>Start camera</button>
+    <label class="btn">Pick an image<input id="file" type="file" accept="image/*" hidden disabled></label>
+    <button id="selfBtn" disabled>Run self-test</button>
+    <button id="stopBtn" disabled>Stop</button>
+    <select id="fps" aria-label="Inference rate">
+      <option value="1">1 fps</option><option value="2" selected>2 fps</option>
+      <option value="5">5 fps</option><option value="10">10 fps</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="crop" checked> Face crop</label>
+  </div>
+  <div class="row" style="margin-bottom:12px;">
+    <select id="manip" aria-label="Manipulation" disabled>
+      <option value="off" selected>Manipulation: off</option>
+      <option value="warp">Face warp &middot; your own snapshot</option>
+    </select>
+    <span class="note" id="manipNote">Camera only. Start the camera to enable.</span>
+  </div>
+  <div class="flex">
+    <div class="viewbox"><canvas id="view" width="640" height="480"></canvas>
+      <div class="thumb" id="thumb" hidden><video id="video" playsinline muted></video><span>raw input</span></div></div>
+    <div class="grow">
+      <canvas id="chart"></canvas>
+      <p class="note legend" style="margin:6px 0 0;">P(deepfake):<i style="background:#4a5163"></i>per frame
+        <i style="background:var(--accent)"></i>10-second mean &middot; dashed line = 0.5</p>
+    </div>
+  </div>
+</div>
+
+<div class="panel tiles">
+  <div class="tile"><div class="k">P(fake) frame</div><div class="v" id="p">&mdash;</div></div>
+  <div class="tile"><div class="k">P(fake) 10 s</div><div class="v" id="pw">&mdash;</div></div>
+  <div class="tile"><div class="k">10 s verdict</div><div class="v" id="v" style="font-size:17px;">&mdash;</div></div>
+  <div class="tile"><div class="k">Inference</div><div class="v" id="ms">&mdash;</div></div>
+  <div class="tile"><div class="k">Face tracking</div><div class="v" id="lmms" style="font-size:17px;">&mdash;</div></div>
+  <div class="tile"><div class="k">Backend</div><div class="v" id="epv" style="font-size:15px;">&mdash;</div></div>
+  <div class="tile"><div class="k">Frames</div><div class="v" id="n">0</div></div>
+</div>
+
+<div class="panel">
+  <h2>Read this before trusting a number</h2>
+  <p class="note" style="margin:0 0 8px;">The <strong>project backends</strong> are the project's own fine-tuned detectors, exported
+  to ONNX from the checkpoints used in the evaluation. Their measured test-set AUROC:</p>
+  <table>
+    <tr><th>backend</th><th>frame-level offline</th><th>10 s window offline</th><th>10 s window live</th></tr>
+    <tr><td>F3Net</td><td>0.837</td><td>0.863</td><td>0.659</td></tr>
+    <tr><td>Xception</td><td>0.747</td><td>0.795</td><td>0.609</td></tr>
+    <tr><td>EfficientNet-B4</td><td>0.761</td><td>0.782</td><td>0.562</td></tr>
+  </table>
+  <p class="note" style="margin:8px 0 0;">The headline finding is the gap between the last two columns: each of
+  these detectors loses accuracy once frames pass through a live video-call pipeline (F3Net drops 0.204). At
+  one-second granularity all six project backends were near chance (0.44&ndash;0.54), which is why the verdict
+  here uses a 10-second mean. A webcam in your room is further still from the training data, so expect
+  these numbers to be <em>worse</em> here, not better. The <strong>ViT-base</strong> option is a public
+  third-party image detector included to test the pipeline; it is not one of the project's backends.
+  <strong>Treat every output as a demonstration that inference works, not as a verdict about a person.</strong></p>
+</div>
+
+<p class="note"><a href="index.html">&larr; Back to the evaluation results</a></p>
+</div>
+
+<script type="module">
+import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.all.min.mjs";
+ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/";
+const MEDIAPIPE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1";
+const LANDMARKER_TASK = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
+
+// Where the output of demo/export_onnx.py (manifest.json + <model>/model_*.onnx) is published.
+// Hugging Face serves files with access-control-allow-origin: *, so the page can stay on a static host.
+const DF40_MODELS_BASE = "https://huggingface.co/abx40/df40-browser-onnx/resolve/main/";
+
+// Local-only overrides for testing exports before publishing: ?models=<base url>&src=<video url>.
+// Ignored on a public host so nobody can link this page with someone else's models under these labels.
+const IS_LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname) || location.protocol === "file:";
+const params = new URLSearchParams(location.search);
+const MODELS_BASE = (IS_LOCAL && params.get("models")) || DF40_MODELS_BASE;
+const DEV_SRC = IS_LOCAL ? params.get("src") : null;
+
+const VIT = {
+  id: "vit", label: "ViT-base/16 · third-party test model", size: 224, mean: [.5,.5,.5], std: [.5,.5,.5],
+  fakeIndex: 0,   // config.json: {"0":"Deepfake","1":"Real"}
+  base: "https://huggingface.co/prithivMLmods/Deepfake-Detection-Exp-02-21-ONNX/resolve/main/",
+  variants: {
+    q4f16: { file: "onnx/model_q4f16.onnx", mb: 47 },
+    int8:  { file: "onnx/model_int8.onnx",  mb: 83 },
+    fp16:  { file: "onnx/model_fp16.onnx",  mb: 164 },
+    fp32:  { file: "onnx/model.onnx",       mb: 328 },
+  },
+  untrained: false,
+  source: `<a href="https://huggingface.co/prithivMLmods/Deepfake-Detection-Exp-02-21-ONNX" target="_blank" rel="noopener">prithivMLmods/Deepfake-Detection-Exp-02-21-ONNX</a>`,
+};
+const AUROC = {
+  f3net: [0.837, 0.863, 0.659], xception_df40: [0.747, 0.795, 0.609], efficientnet_b4: [0.761, 0.782, 0.562],
+};
+const WINDOW_S = 10;
+// Optional bundled target for "Face swap". Must be a synthetic (generated) face with a licence that
+// allows redistribution, never a real person. The option stays hidden while this is null.
+// e.g. { url: "assets/synthetic_face.jpg", credit: "Generated with …, licence …" }
+const SYNTHETIC_FACE = null;
+const $ = id => document.getElementById(id);
+
+let models = [VIT], session = null, current = null, activeEp = "-", gpu = false, probeNote = "";
+let running = false, timer = null, rafId = 0, busy = false, source = null;   // source: camera | dev | still | selftest
+let series = [], frames = 0, lastLandmarks = null, landmarker = null, landmarkerLoading = null, lastTs = 0;
+let warp = null, manipOn = false, liveGain = [1,1,1], gainAt = 0, lastVideoTime = -1;
+
+const frame = document.createElement("canvas");          // what the detector sees (manipulated when on)
+const frameCtx = frame.getContext("2d", { willReadFrequently: true });
+const pre = document.createElement("canvas");
+const preCtx = pre.getContext("2d", { willReadFrequently: true });
+const viewCtx = $("view").getContext("2d");
+
+// ---------------------------------------------------------------- models
+
+async function webgpuAvailable(){
+  if(!navigator.gpu) return false;
+  try { return !!(await navigator.gpu.requestAdapter()); } catch { return false; }
+}
+
+async function loadManifest(){
+  try {
+    const r = await fetch(MODELS_BASE + "manifest.json", { cache: "no-cache" });
+    if(!r.ok) throw new Error(r.status);
+    const manifest = await r.json();
+    return manifest.models.map(m => ({
+      id: m.id, label: m.label + " · project backend", size: m.input.shape[2],
+      mean: m.input.mean, std: m.input.std, fakeIndex: m.output.fake_index, base: MODELS_BASE,
+      variants: Object.fromEntries(Object.entries(m.variants).map(([p, v]) =>
+        [p, { file: v.file, mb: Math.round(v.bytes / 1e6), parity: v.parity_vs_pytorch,
+              probe: v.parity_vs_pytorch && v.parity_vs_pytorch.probe_logits_onnxruntime_cpu }])),
+      untrained: !!m.random_init,
+      source: `exported by <code>demo/export_onnx.py</code> from <code>${m.checkpoint ? m.checkpoint.path : "untrained weights"}</code>`,
+    }));
+  } catch { return null; }
+}
+
+function fillModels(df40){
+  const sel = $("model"); sel.innerHTML = "";
+  const g1 = document.createElement("optgroup"); g1.label = "Project backends · fine-tuned on FF++ and Celeb-DF";
+  if(df40 && df40.length){
+    df40.forEach(m => g1.append(new Option(m.untrained ? "UNTRAINED · " + m.label : m.label, m.id)));
+  } else {
+    const o = new Option("Project backends · weights not published yet", ""); o.disabled = true; g1.append(o);
+  }
+  const g2 = document.createElement("optgroup"); g2.label = "Third-party";
+  g2.append(new Option(VIT.label, VIT.id));
+  sel.append(g1, g2);
+  sel.value = (df40 && df40.length) ? df40[0].id : VIT.id;
+}
+
+function fillPrecisions(){
+  const m = models.find(x => x.id === $("model").value); if(!m) return;
+  const sel = $("precision"); sel.innerHTML = "";
+  for(const [p, v] of Object.entries(m.variants)){
+    const target = p === "int8" ? "CPU" : (p === "fp32" ? "reference" : (p === "fp16" ? "GPU" : "smallest"));
+    sel.append(new Option(`${p} · ${v.mb} MB · ${target}`, p));
+  }
+  const prefer = gpu ? ["fp16", "fp32"] : ["int8", "q4f16", "fp32"];
+  sel.value = prefer.find(p => m.variants[p]) || Object.keys(m.variants)[0];
+  describe(m);
+}
+
+function describe(m, extra = ""){
+  const a = m.untrained ? null : AUROC[m.id];
+  const scores = a ? `Project test AUROC: ${a[0].toFixed(3)} frame-level offline · ${a[1].toFixed(3)} 10 s offline · ` +
+    `<strong>${a[2].toFixed(3)} 10 s live</strong>. ` : (m.untrained ? "" : "Not one of the project backends; no project AUROC. ");
+  const v = m.variants[$("precision").value];
+  const parity = v && v.parity ? ` Export check: ${$("precision").value} vs PyTorch on ${v.parity.n} held-out frames, ` +
+    `max |ΔP| ${v.parity.max_abs_prob_diff.toFixed(4)}, decisions agree ${(v.parity.decision_agreement*100).toFixed(0)}%.` : "";
+  const probe = m === current && probeNote ? "<br>" + probeNote : "";
+  $("modelInfo").innerHTML = scores + `Weights: ${m.source}.` + parity + probe + (extra ? "<br>" + extra : "");
+  $("untrained").hidden = !m.untrained;
+  $("untrained").textContent = m.untrained ?
+    "Untrained weights: this export exists only to test the browser pipeline. Its scores mean nothing." : "";
+}
+
+// int8 QDQ graphs return wrong numbers on WebGPU in ORT Web 1.30 (measured), so int8 always runs on WASM.
+function providersFor(precision, choice){
+  if(precision === "int8") return ["wasm"];
+  if(choice === "webgpu") return ["webgpu", "wasm"];
+  if(choice === "wasm") return ["wasm"];
+  return gpu ? ["webgpu", "wasm"] : ["wasm"];
+}
+
+async function fetchWithProgress(url, onProgress){
+  const response = await fetch(url);
+  if(!response.ok) throw new Error(`${response.status} fetching ${url.split("/").pop()}`);
+  const total = +(response.headers.get("content-length") || 0);
+  const reader = response.body.getReader();
+  const chunks = []; let received = 0;
+  for(;;){
+    const { done, value } = await reader.read();
+    if(done) break;
+    chunks.push(value); received += value.length;
+    if(total) onProgress(received / total);
+  }
+  const buffer = new Uint8Array(received); let offset = 0;
+  for(const chunk of chunks){ buffer.set(chunk, offset); offset += chunk.length; }
+  return buffer.buffer;
+}
+
+function softmax(logits){
+  const max = Math.max(...logits);
+  const exps = logits.map(v => Math.exp(v - max));
+  const sum = exps.reduce((a, b) => a + b, 0);
+  return exps.map(e => e / sum);
+}
+
+// Re-run the deterministic probe from export_onnx.py and compare with the logits the same
+// file produced under onnxruntime CPU at export time: does this browser run the file correctly?
+async function probeCheck(m, precision){
+  const ref = m.variants[precision].probe;
+  if(!ref) return "";
+  const s = m.size, n = 3 * s * s, x = new Float32Array(n);
+  for(let i = 0; i < n; i++) x[i] = 0.8 * Math.sin(0.001 * i);
+  const out = await session.run({ [session.inputNames[0]]: new ort.Tensor("float32", x, [1, 3, s, s]) });
+  const got = Array.from(out[session.outputNames[0]].data).map(Number);
+  const scale = Math.max(1, ...ref.map(Math.abs));
+  const rel = Math.max(...got.map((v, i) => Math.abs(v - ref[i]))) / scale;
+  const ok = rel < 0.05;
+  return `<span class="${ok ? "ok" : "bad"}">Probe check on ${activeEp}: ${ok ? "matches" : "does NOT match"} ` +
+    `the reference run of this file (relative logit error ${rel.toFixed(4)}).</span>` +
+    (ok ? "" : " This backend/precision pair is numerically off on your device; try fp32 or Force WASM.");
+}
+
+async function loadModel(){
+  const m = models.find(x => x.id === $("model").value); if(!m) return;
+  const precision = $("precision").value;
+  $("loadBtn").disabled = true;
+  try {
+    if(session){ const old = session; session = null; await old.release(); }
+    $("epPill").textContent = "downloading…"; $("prog").style.width = "0%";
+    const bytes = await fetchWithProgress(m.base + m.variants[precision].file,
+      f => { $("prog").style.width = (f * 100).toFixed(0) + "%"; });
+    const providers = providersFor(precision, $("ep").value);
+    $("epPill").textContent = "initialising…";
+    session = await ort.InferenceSession.create(bytes, { executionProviders: providers });
+    current = m; activeEp = providers[0]; probeNote = "";
+    $("epPill").textContent = "checking…";
+    probeNote = (precision === "int8" && $("ep").value === "webgpu" ? "int8 runs on WASM regardless of the backend choice. " : "")
+      + await probeCheck(m, precision);
+    describe(m);
+    $("epPill").textContent = `ready · ${m.id} ${precision} · ${activeEp}`;
+    $("epv").textContent = activeEp === "webgpu" ? "WebGPU" : "WASM (CPU)";
+    ["camBtn", "selfBtn", "file"].forEach(id => $(id).disabled = false);
+    series = []; draw();
+  } catch(error){
+    $("epPill").textContent = "failed";
+    describe(m, `<span class="bad">Could not load the model: ${error.message}</span>`);
+  } finally {
+    $("loadBtn").disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------- face tracking
+
+function ensureLandmarker(){
+  if(landmarker) return Promise.resolve(landmarker);
+  if(landmarkerLoading) return landmarkerLoading;
+  landmarkerLoading = (async () => {
+    const vision = await import(`${MEDIAPIPE}/vision_bundle.mjs`);
+    const files = await vision.FilesetResolver.forVisionTasks(`${MEDIAPIPE}/wasm`);
+    const make = delegate => vision.FaceLandmarker.createFromOptions(files, {
+      baseOptions: { modelAssetPath: LANDMARKER_TASK, delegate }, runningMode: "VIDEO", numFaces: 1 });
+    try { landmarker = await make("GPU"); } catch { landmarker = await make("CPU"); }
+    landmarker.tris = [];
+    const E = vision.FaceLandmarker.FACE_LANDMARKS_TESSELATION;       // 852 triangles, 3 edges each
+    for(let i = 0; i < E.length; i += 3) landmarker.tris.push(E[i].start, E[i + 1].start, E[i + 2].start);
+    landmarker.oval = new Set(vision.FaceLandmarker.FACE_LANDMARKS_FACE_OVAL.map(e => e.start));
+    return landmarker;
+  })().catch(error => { $("lmms").textContent = "off"; landmarkerLoading = null;
+    $("manipNote").textContent = "Face tracking unavailable: " + error.message; return null; });
+  return landmarkerLoading;
+}
+
+function detectLandmarks(image, width, height){
+  if(!landmarker) return null;
+  const started = performance.now();
+  lastTs = Math.max(lastTs + 1, started);
+  const result = landmarker.detectForVideo(image, lastTs);
+  $("lmms").textContent = (performance.now() - started).toFixed(0) + " ms";
+  const face = result.faceLandmarks[0];
+  return face ? face.map(p => ({ x: p.x * width, y: p.y * height })) : null;
+}
+
+// Mirrors select_inference_region() in zoom-frame-server/frame_server.py: reject faces under 3% of the
+// frame, otherwise a square crop with a 25% margin and at least 70% of the short side, clamped to the frame.
+function cropBox(W, H, lm){
+  if($("crop").checked && lm){
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for(let i = 0; i < 468; i++){ const p = lm[i];
+      x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
+    const fw = x1 - x0, fh = y1 - y0;
+    if(fw * fh / (W * H) >= 0.03){
+      let side = Math.max(Math.max(fw, fh) * 1.5, Math.min(W, H) * 0.70);
+      side = Math.min(side, Math.min(W, H));
+      const x = Math.min(Math.max(0, (x0 + x1) / 2 - side / 2), W - side);
+      const y = Math.min(Math.max(0, (y0 + y1) / 2 - side / 2), H - side);
+      return { x, y, side, face: true };
+    }
+  }
+  const side = Math.min(W, H);
+  return { x: (W - side) / 2, y: (H - side) / 2, side, face: false };
+}
+
+// ---------------------------------------------------------------- manipulation (face warp)
+
+// Textures a source face onto the live landmark mesh in WebGL, feathering the outer ring of
+// the mesh and matching the live colour. Deliberately crude: a domain-shift exhibit, not a deepfake tool.
+class FaceWarp {
+  constructor(tris, oval){
+    this.canvas = document.createElement("canvas");
+    const gl = this.gl = this.canvas.getContext("webgl", { premultipliedAlpha: false, preserveDrawingBuffer: true });
+    if(!gl) throw new Error("WebGL unavailable");
+    const shader = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, shader(gl.VERTEX_SHADER,
+      "attribute vec2 aPos; attribute vec2 aUv; attribute float aA; varying vec2 vUv; varying float vA;" +
+      "void main(){ vUv = aUv; vA = aA; gl_Position = vec4(aPos, 0.0, 1.0); }"));
+    gl.attachShader(prog, shader(gl.FRAGMENT_SHADER,
+      "precision mediump float; uniform sampler2D uTex; uniform vec3 uGain; varying vec2 vUv; varying float vA;" +
+      "void main(){ vec4 c = texture2D(uTex, vUv); gl_FragColor = vec4(clamp(c.rgb * uGain, 0.0, 1.0), vA); }"));
+    gl.linkProgram(prog); gl.useProgram(prog);
+    this.prog = prog;
+    this.loc = { pos: gl.getAttribLocation(prog, "aPos"), uv: gl.getAttribLocation(prog, "aUv"),
+                 a: gl.getAttribLocation(prog, "aA"), gain: gl.getUniformLocation(prog, "uGain") };
+    this.count = tris.length;
+    this.buf = { pos: gl.createBuffer(), uv: gl.createBuffer(), a: gl.createBuffer(), idx: gl.createBuffer() };
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buf.idx);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(tris), gl.STATIC_DRAW);
+    // Alpha 0 on the face oval, 0.5 on its neighbours, 1 inside: a soft seam without a separate mask pass.
+    const alpha = new Float32Array(468).fill(1);
+    oval.forEach(i => alpha[i] = 0);
+    for(let t = 0; t < tris.length; t += 3){
+      const tri = [tris[t], tris[t + 1], tris[t + 2]];
+      if(tri.some(i => oval.has(i))) tri.forEach(i => { if(!oval.has(i)) alpha[i] = Math.min(alpha[i], 0.5); });
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.a);
+    gl.bufferData(gl.ARRAY_BUFFER, alpha, gl.STATIC_DRAW);
+    this.tex = gl.createTexture();
+  }
+  setSource(image, lm, width, height){
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+    for(const p of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T]) gl.texParameteri(gl.TEXTURE_2D, p, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    const uv = new Float32Array(468 * 2);
+    for(let i = 0; i < 468; i++){ uv[2 * i] = lm[i].x / width; uv[2 * i + 1] = lm[i].y / height; }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.uv);
+    gl.bufferData(gl.ARRAY_BUFFER, uv, gl.STATIC_DRAW);
+    this.sourceMean = faceMean(image, lm, width, height);
+  }
+  clear(){                                  // drop the snapshot texture
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+  render(lm, width, height, gain){
+    const gl = this.gl;
+    if(this.canvas.width !== width || this.canvas.height !== height){ this.canvas.width = width; this.canvas.height = height; }
+    gl.viewport(0, 0, width, height);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    const pos = new Float32Array(468 * 2);
+    for(let i = 0; i < 468; i++){ pos[2 * i] = lm[i].x / width * 2 - 1; pos[2 * i + 1] = 1 - lm[i].y / height * 2; }
+    const bind = (buffer, loc, size, data) => {
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      if(data) gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+    };
+    bind(this.buf.pos, this.loc.pos, 2, pos);
+    bind(this.buf.uv, this.loc.uv, 2, null);
+    bind(this.buf.a, this.loc.a, 1, null);
+    gl.uniform3fv(this.loc.gain, gain);
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buf.idx);
+    gl.drawElements(gl.TRIANGLES, this.count, gl.UNSIGNED_SHORT, 0);
+    return this.canvas;
+  }
+}
+
+// Mean colour of the face bounding box, sampled from a 24x24 downscale.
+const meanCanvas = document.createElement("canvas"); meanCanvas.width = meanCanvas.height = 24;
+const meanCtx = meanCanvas.getContext("2d", { willReadFrequently: true });
+function faceMean(image, lm, width, height){
+  let x0 = width, y0 = height, x1 = 0, y1 = 0;
+  for(let i = 0; i < 468; i++){ const p = lm[i];
+    x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
+  const w = (x1 - x0) * 0.5, h = (y1 - y0) * 0.5;              // central half: cheeks, nose, mouth
+  meanCtx.drawImage(image, x0 + w / 2, y0 + h / 2, w, h, 0, 0, 24, 24);
+  const d = meanCtx.getImageData(0, 0, 24, 24).data, m = [0, 0, 0];
+  for(let i = 0; i < d.length; i += 4){ m[0] += d[i]; m[1] += d[i + 1]; m[2] += d[i + 2]; }
+  return m.map(v => v / (d.length / 4) + 1);
+}
+
+async function setManipulation(mode){
+  manipOn = false;
+  if(mode === "off"){ if(warp) warp.clear(); return; }
+  if(!running || !["camera", "dev"].includes(source)){      // own camera (or local test clip) only
+    $("manip").value = "off"; return;
+  }
+  if(mode === "swap") return setSwap();
+  const lm = await ensureLandmarker();
+  if(!lm || !lastLandmarks){
+    $("manip").value = "off";
+    $("manipNote").textContent = "No face found. Face the camera and try again.";
+    return;
+  }
+  try { warp = warp || new FaceWarp(landmarker.tris, landmarker.oval); }
+  catch(error){ $("manip").value = "off"; $("manipNote").textContent = error.message; return; }
+  // Snapshot of the visitor's own current frame. It lives only in this WebGL texture and is
+  // discarded on Stop; nothing here can be saved, exported or uploaded.
+  const snap = document.createElement("canvas");
+  snap.width = frame.width; snap.height = frame.height;
+  snap.getContext("2d").drawImage($("video"), 0, 0, frame.width, frame.height);
+  warp.setSource(snap, lastLandmarks, frame.width, frame.height);
+  manipOn = true;
+  $("manipNote").textContent = "Your face from the moment you switched this on, warped onto your live head " +
+    "movement. Expect the scores to barely move: this is not a manipulation any of these detectors saw in training.";
+}
+
+async function setSwap(){
+  const lm = await ensureLandmarker();
+  try {
+    if(!lm) throw new Error("face tracking unavailable");
+    warp = warp || new FaceWarp(landmarker.tris, landmarker.oval);
+    const img = new Image(); img.crossOrigin = "anonymous"; img.src = SYNTHETIC_FACE.url; await img.decode();
+    const target = detectLandmarks(img, img.naturalWidth, img.naturalHeight);
+    if(!target) throw new Error("no face found in the bundled image");
+    warp.setSource(img, target, img.naturalWidth, img.naturalHeight);
+  } catch(error){
+    $("manip").value = "off"; $("manipNote").textContent = "Face swap unavailable: " + error.message; return;
+  }
+  manipOn = true;
+  $("manipNote").textContent = `A bundled synthetic face (not a real person; ${SYNTHETIC_FACE.credit}) warped onto ` +
+    "your live landmarks. Expect the scores to barely move: this is not a manipulation any of these detectors saw in training.";
+}
+
+// ---------------------------------------------------------------- frame loop and inference
+
+function renderLoop(){
+  if(!running) return;
+  const video = $("video");
+  if(video.readyState >= 2 && video.videoWidth && video.currentTime !== lastVideoTime){
+    lastVideoTime = video.currentTime;           // only process new video frames
+    const W = video.videoWidth, H = video.videoHeight;
+    if(frame.width !== W || frame.height !== H){ frame.width = W; frame.height = H; }
+    frameCtx.drawImage(video, 0, 0, W, H);
+    lastLandmarks = detectLandmarks(video, W, H);
+    if(manipOn && lastLandmarks && warp){
+      const now = performance.now();
+      if(now - gainAt > 500){             // colour match the snapshot to the current lighting
+        const live = faceMean(frame, lastLandmarks, W, H);
+        liveGain = live.map((v, i) => Math.min(1.6, Math.max(0.6, v / warp.sourceMean[i])));
+        gainAt = now;
+      }
+      frameCtx.drawImage(warp.render(lastLandmarks, W, H, liveGain), 0, 0);
+    }
+    paintView();
+  }
+  rafId = requestAnimationFrame(renderLoop);
+}
+
+function paintView(){
+  const view = $("view");
+  if(view.width !== frame.width || view.height !== frame.height){ view.width = frame.width; view.height = frame.height; }
+  viewCtx.drawImage(frame, 0, 0);
+  const box = cropBox(frame.width, frame.height, lastLandmarks);
+  const u = Math.max(1, frame.width / 320);
+  viewCtx.lineWidth = 2 * u; viewCtx.strokeStyle = box.face ? "#4ecdc4" : "#98a0b0";
+  viewCtx.setLineDash(box.face ? [] : [6 * u, 5 * u]);
+  viewCtx.strokeRect(box.x, box.y, box.side, box.side); viewCtx.setLineDash([]);
+  if(manipOn){
+    // Drawn into the displayed pixels, so any screenshot of the manipulated view carries it too.
+    const text = "SYNTHETIC · manipulated in your browser · not recorded";
+    viewCtx.font = `600 ${11 * u}px -apple-system,sans-serif`;
+    const w = viewCtx.measureText(text).width + 14 * u;
+    viewCtx.fillStyle = "rgba(255,107,107,.92)"; viewCtx.fillRect(6 * u, 6 * u, w, 20 * u);
+    viewCtx.fillStyle = "#fff"; viewCtx.fillText(text, 13 * u, 20 * u);
+  }
+}
+
+function tensorFromCanvas(m){
+  const S = m.size;
+  const { data } = preCtx.getImageData(0, 0, S, S);
+  const out = new Float32Array(3 * S * S), plane = S * S;
+  for(let i = 0, px = 0; i < data.length; i += 4, px++)
+    for(let c = 0; c < 3; c++) out[px + c * plane] = (data[i + c] / 255 - m.mean[c]) / m.std[c];
+  return new ort.Tensor("float32", out, [1, 3, S, S]);
+}
+
+function prepare(image, W, H, lm){
+  const S = current.size;
+  if(pre.width !== S){ pre.width = S; pre.height = S; }
+  const box = cropBox(W, H, lm);
+  preCtx.imageSmoothingQuality = "high";
+  preCtx.drawImage(image, box.x, box.y, box.side, box.side, 0, 0, S, S);
+}
+
+async function infer(){
+  if(!session || busy) return;
+  busy = true;
+  try {
+    const started = performance.now();
+    const result = await session.run({ [session.inputNames[0]]: tensorFromCanvas(current) });
+    const logits = Array.from(result[session.outputNames[0]].data).map(Number);
+    const score = logits.length === 1 ? 1 / (1 + Math.exp(-logits[0])) : softmax(logits)[current.fakeIndex];
+    const elapsed = performance.now() - started;
+    const t = performance.now() / 1000;
+    frames++; series.push({ t, p: score });
+    while(series.length && t - series[0].t > 120) series.shift();
+    const win = series.filter(s => t - s.t <= WINDOW_S);
+    const mean = win.reduce((a, s) => a + s.p, 0) / win.length;
+    const span = win.length > 1 ? t - win[0].t : 0;
+    $("p").textContent = score.toFixed(3);
+    $("pw").textContent = mean.toFixed(3);
+    if(current.untrained){
+      $("v").textContent = "n/a"; $("v").style.color = "var(--muted)";
+    } else if(span >= WINDOW_S - 1){
+      $("v").textContent = mean >= 0.5 ? "fake" : "real";
+      $("v").style.color = mean >= 0.5 ? "var(--fake)" : "var(--real)";
+    } else {
+      $("v").textContent = `wait ${Math.ceil(WINDOW_S - 1 - span)} s`; $("v").style.color = "var(--muted)";
+    }
+    $("ms").textContent = elapsed.toFixed(0) + " ms";
+    $("n").textContent = frames;
+    draw();
+    return score;
+  } finally { busy = false; }
+}
+
+function draw(){
+  const c = $("chart"), dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const x = c.getContext("2d"); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, w, h);
+  const padL = 34, padB = 8, padT = 8, pw = w - padL - 6, ph = h - padT - padB;
+  const Y = v => padT + (1 - Math.max(0, Math.min(1, v))) * ph;
+  x.strokeStyle = "#2a2f3a"; x.lineWidth = 1;
+  [0, .5, 1].forEach(v => { x.beginPath(); x.setLineDash(v === .5 ? [4, 4] : []);
+    x.moveTo(padL, Y(v)); x.lineTo(w - 6, Y(v)); x.stroke(); });
+  x.setLineDash([]);
+  x.fillStyle = "#98a0b0"; x.font = "11px -apple-system,sans-serif"; x.textAlign = "right";
+  [0, .5, 1].forEach(v => x.fillText(v.toFixed(1), padL - 5, Y(v) + 3));
+  if(series.length < 2) return;
+  const t1 = series.at(-1).t, t0 = Math.min(series[0].t, t1 - 30);
+  const X = t => padL + (t - t0) / (t1 - t0) * pw;
+  const line = (points, color, width) => {
+    x.strokeStyle = color; x.lineWidth = width; x.beginPath();
+    points.forEach((s, i) => i ? x.lineTo(X(s.t), Y(s.p)) : x.moveTo(X(s.t), Y(s.p))); x.stroke();
+  };
+  line(series, "#4a5163", 1.2);
+  line(series.map((s, i) => {
+    const win = series.slice(0, i + 1).filter(q => s.t - q.t <= WINDOW_S);
+    return { t: s.t, p: win.reduce((a, q) => a + q.p, 0) / win.length };
+  }), "#7aa2f7", 2.2);
+}
+
+function stop(){
+  running = false; manipOn = false;
+  cancelAnimationFrame(rafId);
+  if(timer){ clearInterval(timer); timer = null; }
+  if(warp) warp.clear();
+  const video = $("video");
+  if(video.srcObject){ video.srcObject.getTracks().forEach(t => t.stop()); video.srcObject = null; }
+  video.removeAttribute("src"); video.load();
+  $("thumb").hidden = true;
+  $("manip").value = "off"; $("manip").disabled = true;
+  $("manipNote").textContent = "Camera only. Start the camera to enable.";
+  $("stopBtn").disabled = true; $("camBtn").disabled = !session;
+  source = null;
+}
+
+async function startVideo(kind){
+  stop();
+  const video = $("video");
+  $("thumb").hidden = false;
+  try {
+    if(kind === "camera"){
+      video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+    } else {
+      video.crossOrigin = "anonymous"; video.loop = true; video.src = DEV_SRC;
+    }
+    await video.play();
+  } catch(error){
+    $("thumb").hidden = true;
+    describe(current, `<span class="bad">Camera unavailable: ${error.message}</span> — use "Pick an image" or "Run self-test" instead.`);
+    return;
+  }
+  source = kind; running = true; series = []; frames = 0; lastVideoTime = -1;
+  $("stopBtn").disabled = false; $("camBtn").disabled = true;
+  ensureLandmarker().then(lm => {
+    if(!lm || source !== kind) return;
+    // Manipulation is offered on the visitor's own camera only (plus the local test clip).
+    $("manip").disabled = false;
+    $("manipNote").textContent = kind === "camera" ? "Applies to your own camera feed only." : "Local test clip.";
+  });
+  renderLoop();
+  timer = setInterval(() => {
+    if(!running || !frame.width) return;
+    prepare(frame, frame.width, frame.height, lastLandmarks);
+    infer();
+  }, 1000 / +$("fps").value);
+}
+
+async function showStill(image, W, H, lm){
+  frame.width = W; frame.height = H; frameCtx.drawImage(image, 0, 0, W, H);
+  lastLandmarks = lm; paintView();
+  prepare(frame, W, H, lm);
+}
+
+$("file").addEventListener("change", async event => {
+  const file = event.target.files[0]; if(!file || !session) return;
+  stop(); source = "still"; series = [];
+  const bitmap = await createImageBitmap(file);
+  const lmReady = await ensureLandmarker();
+  const lm = lmReady ? detectLandmarks(bitmap, bitmap.width, bitmap.height) : null;
+  await showStill(bitmap, bitmap.width, bitmap.height, lm);
+  await infer();
+  event.target.value = "";
+});
+
+$("selfBtn").addEventListener("click", async () => {
+  if(!session) return;
+  stop(); source = "selftest"; series = [];
+  // Deterministic synthetic frame: proves preprocessing + inference + plotting work
+  // end to end without a camera or a file. Not a meaningful detection result.
+  const c = document.createElement("canvas"); c.width = 320; c.height = 320;
+  const g = c.getContext("2d"), grad = g.createLinearGradient(0, 0, 320, 320);
+  grad.addColorStop(0, "#6b4f3a"); grad.addColorStop(.5, "#c9a227"); grad.addColorStop(1, "#2e3440");
+  g.fillStyle = grad; g.fillRect(0, 0, 320, 320);
+  g.fillStyle = "rgba(255,220,190,.85)"; g.beginPath(); g.ellipse(160, 160, 82, 108, 0, 0, 7); g.fill();
+  await showStill(c, 320, 320, null);
+  let last = 0;
+  for(let i = 0; i < 5; i++) last = await infer();
+  describe(current, `Self-test complete on ${activeEp}: 5 inferences, last P(deepfake) = ${last.toFixed(3)}. ` +
+    `Synthetic input — the number is not a detection claim.`);
+});
+
+$("manip").addEventListener("change", e => setManipulation(e.target.value));
+$("view").addEventListener("contextmenu", e => e.preventDefault());
+$("model").addEventListener("change", fillPrecisions);
+$("precision").addEventListener("change", () => describe(models.find(x => x.id === $("model").value)));
+$("loadBtn").addEventListener("click", loadModel);
+$("camBtn").addEventListener("click", () => startVideo(DEV_SRC ? "dev" : "camera"));
+$("stopBtn").addEventListener("click", stop);
+$("fps").addEventListener("change", () => { if(running && timer){ clearInterval(timer);
+  timer = setInterval(() => { if(!running || !frame.width) return; prepare(frame, frame.width, frame.height, lastLandmarks); infer(); },
+    1000 / +$("fps").value); } });
+window.addEventListener("resize", draw);
+document.addEventListener("visibilitychange", () => { if(document.hidden && manipOn){ $("manip").value = "off"; setManipulation("off"); } });
+
+(async () => {
+  gpu = await webgpuAvailable();
+  $("epv").textContent = gpu ? "WebGPU available" : "WASM only";
+  if(DEV_SRC) $("camBtn").textContent = "Start test clip";
+  if(SYNTHETIC_FACE) $("manip").append(new Option("Face swap · bundled synthetic face", "swap"));
+  const df40 = await loadManifest();
+  if(df40) models = [...df40, VIT];
+  fillModels(df40);
+  fillPrecisions();
+  viewCtx.fillStyle = "#000"; viewCtx.fillRect(0, 0, 640, 480);
+  draw();
+})();
+</script></body></html>

@@ -1,24 +1,18 @@
 # gen_token.py
-import os
-import time
+import os, time, jwt
 
-import jwt
-
-SDK_KEY = os.getenv("SDK_KEY")
-SDK_SECRET = os.getenv("SDK_SECRET")
-SESSION_NAME = os.getenv("ZOOM_VIDEO_SDK_TPC", "deepmeet-session-001")
-
-if not SDK_KEY or not SDK_SECRET:
-    raise RuntimeError("Set SDK_KEY and SDK_SECRET in your environment before generating a token")
+SDK_KEY    = os.environ["SDK_KEY"]
+SDK_SECRET = os.environ["SDK_SECRET"]
 
 payload = {
-    "app_key": SDK_KEY,
-    "tpc": SESSION_NAME,
-    "role_type": 1,
+    "app_key": SDK_KEY,                 # your SDK key
+    "tpc": "deepmeet-session-001",      # session name (NOT a Zoom meeting ID)
+    "role_type": 1,                     # 1 = host, 0 = participant
     "version": 1,
-    "iat": int(time.time()),
-    "exp": int(time.time()) + 60 * 60 * 2,
+    "iat": int(time.time()),            # issued at
+    "exp": int(time.time()) + 60*60*2   # expires in 2 hours
 }
 
 token = jwt.encode(payload, SDK_SECRET, algorithm="HS256")
+# PyJWT returns str on recent versions; on older it may return bytes:
 print(token if isinstance(token, str) else token.decode("utf-8"))

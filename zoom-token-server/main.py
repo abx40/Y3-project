@@ -1,13 +1,43 @@
+import base64
+import hashlib
+import hmac
+import json
 import os
 import time
+from pathlib import Path
 from typing import Optional
 
-import jwt
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-load_dotenv()
+
+def load_env_file(env_path: Path) -> None:
+    if not env_path.is_file():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("\"'")
+        os.environ.setdefault(key, value)
+
+
+def b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def encode_hs256_jwt(payload: dict, secret: str) -> str:
+    header = {"alg": "HS256", "typ": "JWT"}
+    header_segment = b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+    payload_segment = b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signing_input = f"{header_segment}.{payload_segment}".encode("ascii")
+    signature = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    return f"{header_segment}.{payload_segment}.{b64url_encode(signature)}"
+
+
+load_env_file(Path(__file__).resolve().parent / ".env")
 
 SDK_KEY = os.getenv("SDK_KEY")
 SDK_SECRET = os.getenv("SDK_SECRET")
@@ -42,7 +72,7 @@ def generate_token(req: TokenRequest):
         "exp": now + req.expires_in,
     }
 
-    token = jwt.encode(payload, SDK_SECRET, algorithm="HS256")
+    token = encode_hs256_jwt(payload, SDK_SECRET)
     return {
         "token": token,
         "tpc": tpc,

@@ -1,0 +1,63 @@
+{
+  "selected_calibration_segments": 398,
+  "selected_unique_clips": 398,
+  "selected_unique_identity_tokens": 326,
+  "selected_unique_source_tokens": 387,
+  "validation_identity_overlap": [],
+  "test_identity_overlap": [],
+  "validation_source_overlap": [],
+  "test_source_overlap": [],
+  "session_specs": [
+    {
+      "split": "calibration",
+      "kind": "mixed",
+      "ordinal": 1
+    },
+    {
+      "split": "calibration",
+      "kind": "mixed",
+      "ordinal": 2
+    },
+    {
+      "split": "calibration",
+      "kind": "mixed",
+      "ordinal": 3
+    },
+    {
+      "split": "calibration",
+      "kind": "mixed",
+      "ordinal": 4
+    },
+    {
+      "split": "calibration",
+      "kind": "real_only",
+      "ordinal": 1
+    },
+    {
+      "split": "calibration",
+      "kind": "real_only",
+      "ordinal": 2
+    },
+    {
+      "split": "calibration",
+      "kind": "real_only",
+      "ordinal": 3
+    },
+    {
+      "split": "calibration",
+      "kind": "fake_only",
+      "ordinal": 1
+    },
+    {
+      "split": "calibration",
+      "kind": "fake_only",
+      "ordinal": 2
+    }
+  ],
+  "target_video": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30.0
+  },
+  "seed": 20260414
+}

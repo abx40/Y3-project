@@ -1,0 +1,12 @@
+{
+  "run_id": "calibration_mixed_03__xception_df40",
+  "split": "calibration",
+  "kind": "mixed",
+  "ordinal": 3,
+  "model": "xception_df40",
+  "duration_s": 600,
+  "video_filename": "calibration_mixed_03.mp4",
+  "labels_filename": "calibration_mixed_03_labels.csv",
+  "offline_mode": true,
+  "sample_every_s": 1
+}

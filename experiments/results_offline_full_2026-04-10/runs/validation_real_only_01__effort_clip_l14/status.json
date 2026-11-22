@@ -1,0 +1,10 @@
+{
+  "status": "success",
+  "runtime_s": 600,
+  "prediction_rows": 600,
+  "mode": "offline_direct_mp4",
+  "video_path": "C:\\deepfake_eval\\leakfree_eval\\sessions\\validation\\validation_real_only_01.mp4",
+  "model": "effort_clip_l14",
+  "rerun_after_checkpoint_fix": true,
+  "elapsed_wall_s": 56.8
+}

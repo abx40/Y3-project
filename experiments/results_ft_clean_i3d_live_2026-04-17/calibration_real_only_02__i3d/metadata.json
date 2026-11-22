@@ -1,0 +1,14 @@
+{
+  "run_id": "calibration_real_only_02__i3d",
+  "session_name": "calibration_real_only_02__i3d",
+  "split": "calibration",
+  "kind": "real_only",
+  "ordinal": 2,
+  "video_path": "C:\\deepfake_eval\\f3net_clean_experiment_2026-04-15_v4\\sessions\\calibration\\calibration_real_only_02.mp4",
+  "labels_path": "C:\\deepfake_eval\\f3net_clean_experiment_2026-04-15_v4\\sessions\\calibration\\calibration_real_only_02_labels.csv",
+  "duration_s": 595.633,
+  "runtime_s": 595.633,
+  "buffer_s": 15.0,
+  "model": "i3d",
+  "started_at_iso": "2026-04-17T08:15:55Z"
+}

@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "run_id": "calibration_mixed_03__f3net",
+  "started_at_iso": "2026-04-16T00:50:48Z",
+  "ended_at_iso": "2026-04-16T01:01:19Z",
+  "runtime_s": 600.433,
+  "buffer_s": 15.0,
+  "prediction_rows": 7646,
+  "active_video_model": "f3net",
+  "resolved_model_name": "F3Net DF",
+  "error": ""
+}

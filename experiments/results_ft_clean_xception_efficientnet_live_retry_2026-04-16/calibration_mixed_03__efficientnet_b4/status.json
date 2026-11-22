@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "run_id": "calibration_mixed_03__efficientnet_b4",
+  "started_at_iso": "2026-04-16T15:51:46Z",
+  "ended_at_iso": "2026-04-16T16:02:16Z",
+  "runtime_s": 600.433,
+  "buffer_s": 15.0,
+  "prediction_rows": 6332,
+  "active_video_model": "efficientnet_b4",
+  "resolved_model_name": "EfficientNet-B4 DF",
+  "error": ""
+}

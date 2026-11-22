@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "run_id": "test_real_only_01__xception_df40",
+  "started_at_iso": "2026-04-16T18:50:27Z",
+  "ended_at_iso": "2026-04-16T19:00:57Z",
+  "runtime_s": 600.0,
+  "buffer_s": 15.0,
+  "prediction_rows": 7905,
+  "active_video_model": "xception_df40",
+  "resolved_model_name": "Xception DF40",
+  "error": ""
+}

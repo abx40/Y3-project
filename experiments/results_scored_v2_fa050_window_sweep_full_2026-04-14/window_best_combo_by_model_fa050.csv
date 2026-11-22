@@ -1,0 +1,7 @@
+backend,best_window_s,validation_f1,validation_false_alerts_per_min,validation_false_alert_time_ratio,validation_ttfd_s,test_f1
+efficientnet_b4,60,0.566038,0.25,0.5,7.059798,0.65625
+effort_clip_l14,30,0.574468,0.333333,0.388889,8.619607,0.454545
+f3net,60,0.71875,0.333333,0.625,1.55294,0.666667
+i3d,30,0.586207,0.296296,0.666667,3.898488,0.559322
+videomae,60,0.641509,0.375,0.416667,6.862726,0.409091
+xception_df40,30,0.564706,0.296296,0.277778,10.409893,0.505051

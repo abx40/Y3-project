@@ -1,0 +1,3 @@
+backend,signal_source,polarity,raw_auc_high_means_fake,effective_auc,calibration_auroc,validation_auroc,test_auroc,calibration_status,selected_policy,gate_real_session_count,gate_false_alerts_per_min,gate_false_alerts_per_min_ucb,gate_false_alert_time_ratio,gate_false_alert_time_ratio_ucb,target_recall,target_ttfd_s,target_alert_flicker,threshold,t_on,t_off,persistence_windows
+efficientnet_b4,score_raw,high,0.633245,0.633245,0.633245,0.556923,0.580823,selected,strict_bootstrap_ucb_gate,7,0.039435,0.093215,0.009859,0.023304,0.101911,12.180017,2.910448,0.83,0.83,0.78,2
+xception_df40,score_raw,high,0.60348,0.60348,0.60348,0.561325,0.63367,selected,strict_bootstrap_ucb_gate,7,0.0,0.0,0.0,0.0,0.070064,12.646691,1.454545,0.95,0.95,0.85,3

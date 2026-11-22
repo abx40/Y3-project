@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "run_id": "calibration_real_only_03__effort_clip_l14",
+  "started_at_iso": "2026-04-16T22:35:24Z",
+  "ended_at_iso": "2026-04-16T22:45:56Z",
+  "runtime_s": 600.267,
+  "buffer_s": 15.0,
+  "prediction_rows": 7650,
+  "active_video_model": "effort_clip_l14",
+  "resolved_model_name": "Effort CLIP-L14",
+  "error": ""
+}

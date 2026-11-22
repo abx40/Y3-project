@@ -1,0 +1,7 @@
+{
+  "sessionName": "deepmeet-session-001",
+  "userName": "bot",
+  "token": "",
+  "GetVideoRawData": true,
+  "GetAudioRawData": true
+}

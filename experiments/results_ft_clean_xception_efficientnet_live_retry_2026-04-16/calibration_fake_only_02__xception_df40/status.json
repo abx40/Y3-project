@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "run_id": "calibration_fake_only_02__xception_df40",
+  "started_at_iso": "2026-04-16T14:38:20Z",
+  "ended_at_iso": "2026-04-16T14:48:47Z",
+  "runtime_s": 597.8,
+  "buffer_s": 15.0,
+  "prediction_rows": 7963,
+  "active_video_model": "xception_df40",
+  "resolved_model_name": "Xception DF40",
+  "error": ""
+}

@@ -1,0 +1,12 @@
+{
+  "run_id": "validation_mixed_02__effort_clip_l14",
+  "split": "validation",
+  "kind": "mixed",
+  "ordinal": 2,
+  "model": "effort_clip_l14",
+  "duration_s": 600,
+  "video_filename": "validation_mixed_02.mp4",
+  "labels_filename": "validation_mixed_02_labels.csv",
+  "offline_mode": true,
+  "sample_every_s": 1
+}

@@ -1,0 +1,12 @@
+{
+  "run_id": "test_real_only_01__f3net",
+  "split": "test",
+  "kind": "real_only",
+  "ordinal": 1,
+  "model": "f3net",
+  "duration_s": 600,
+  "video_filename": "test_real_only_01.mp4",
+  "labels_filename": "test_real_only_01_labels.csv",
+  "offline_mode": true,
+  "sample_every_s": 1
+}

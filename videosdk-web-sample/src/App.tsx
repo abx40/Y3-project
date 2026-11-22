@@ -32,6 +32,7 @@ import Chat from './feature/chat/chat';
 import Command from './feature/command/command';
 import Subsession from './feature/subsession/subsession';
 import type { MediaStream } from './index-types';
+import { getAutomationConfig, logAutomationEvent } from './utils/automation';
 import './App.css';
 type CustomElement<T> = Partial<T & DOMAttributes<T> & { children: any }>;
 
@@ -141,6 +142,7 @@ function App(props: AppProps) {
   const [isSupportGalleryView, setIsSupportGalleryView] = useState<boolean>(false);
   const zmClient = useContext(ZoomContext);
   const hasInitialized = useRef(false);
+  const autoLeaveTimerRef = useRef<number | null>(null);
   let webEndpoint: any;
   if (webEndpointArg) {
     webEndpoint = webEndpointArg;
@@ -148,6 +150,7 @@ function App(props: AppProps) {
     webEndpoint = window?.webEndpoint ?? 'zoom.us';
   }
   const mediaContext = useMemo(() => ({ ...mediaState, mediaStream }), [mediaState, mediaStream]);
+  const automationConfig = useMemo(() => getAutomationConfig(new URLSearchParams(window.location.search)), []);
   const galleryViewWithoutSAB = Number(enforceGalleryView) === 1 && !window.crossOriginIsolated;
   const vbWithoutSAB = Number(enforceVB) === 1 && !window.crossOriginIsolated;
   const galleryViewWithAttach = true;
@@ -170,31 +173,55 @@ function App(props: AppProps) {
       return;
     }
     const init = async () => {
-      await zmClient.init('en-US', `${window.location.origin}/lib`, {
-        webEndpoint,
-        enforceMultipleVideos: galleryViewWithoutSAB,
-        enforceVirtualBackground: vbWithoutSAB,
-        stayAwake: true,
-        patchJsMedia: true,
-        leaveOnPageUnload: true
-      });
-      hasInitialized.current = true;
+      void logAutomationEvent(automationConfig, 'app_init', { topic, name });
+      try {
+        await zmClient.init('en-US', `${window.location.origin}/lib`, {
+          webEndpoint,
+          enforceMultipleVideos: galleryViewWithoutSAB,
+          enforceVirtualBackground: vbWithoutSAB,
+          stayAwake: true,
+          patchJsMedia: true,
+          leaveOnPageUnload: true
+        });
+        hasInitialized.current = true;
+      } catch (e: any) {
+        setIsLoading(false);
+        void logAutomationEvent(automationConfig, 'init_failed', {
+          reason: e?.reason ?? e?.message ?? String(e)
+        });
+        message.error(e?.reason ?? e?.message ?? 'Zoom client init failed');
+        return;
+      }
+
+      void logAutomationEvent(automationConfig, 'init_success', { topic, name });
+
       try {
         setLoadingText('Joining the session...');
-        await zmClient.join(topic, signature, name, password).catch((e) => {
-          console.log(e);
-        });
+        void logAutomationEvent(automationConfig, 'join_requested', { topic, name });
+        await zmClient.join(topic, signature, name, password);
         const stream = zmClient.getMediaStream();
         setMediaStream(stream);
         setIsSupportGalleryView(stream.isSupportMultipleVideos());
         setIsLoading(false);
+        void logAutomationEvent(automationConfig, 'join_success', {
+          topic,
+          name,
+          isSupportGalleryView: stream.isSupportMultipleVideos()
+        });
       } catch (e: any) {
         setIsLoading(false);
-        message.error(e.reason);
+        void logAutomationEvent(automationConfig, 'join_failed', {
+          reason: e?.reason ?? e?.message ?? String(e)
+        });
+        message.error(e?.reason ?? e?.message ?? 'Failed to join session');
       }
     };
     init();
     return () => {
+      if (autoLeaveTimerRef.current !== null) {
+        window.clearTimeout(autoLeaveTimerRef.current);
+        autoLeaveTimerRef.current = null;
+      }
       // Only attempt cleanup if we actually initialized and are (or were) in a session
       if (hasInitialized.current) {
         try {
@@ -208,10 +235,12 @@ function App(props: AppProps) {
               .finally(() => {
                 ZoomVideo.destroyClient();
                 hasInitialized.current = false;
+                void logAutomationEvent(automationConfig, 'app_cleanup', {});
               });
           } else {
             ZoomVideo.destroyClient();
             hasInitialized.current = false;
+            void logAutomationEvent(automationConfig, 'app_cleanup', {});
           }
         } catch (e) {
           console.warn('Error during Zoom cleanup on unmount:', e);
@@ -229,10 +258,15 @@ function App(props: AppProps) {
     galleryViewWithoutSAB,
     customerJoinId,
     lang,
-    vbWithoutSAB
+    vbWithoutSAB,
+    automationConfig
   ]);
   const onConnectionChange = useCallback(
     (payload: any) => {
+      void logAutomationEvent(automationConfig, 'connection_change', {
+        state: payload.state,
+        reason: payload.reason ?? null
+      });
       if (payload.state === ConnectionState.Reconnecting) {
         setIsLoading(true);
         setIsFailover(true);
@@ -252,11 +286,18 @@ function App(props: AppProps) {
         }
         window.zmClient = zmClient;
         window.mediaStream = zmClient.getMediaStream();
+        void logAutomationEvent(automationConfig, 'connected', {
+          sessionTopic: zmClient.getSessionInfo()?.topic ?? topic
+        });
 
         console.log('getSessionInfo', zmClient.getSessionInfo());
       } else if (payload.state === ConnectionState.Closed || payload.state === ConnectionState.Fail) {
         setStatus('closed');
         dispatch({ type: 'reset-media' });
+        void logAutomationEvent(automationConfig, 'connection_closed', {
+          state: payload.state,
+          reason: payload.reason ?? null
+        });
         if (payload.state === ConnectionState.Fail) {
           Modal.error({
             title: 'Join meeting failed',
@@ -271,7 +312,7 @@ function App(props: AppProps) {
         }
       }
     },
-    [isFailover, zmClient]
+    [automationConfig, isFailover, zmClient, topic]
   );
   const onMediaSDKChange = useCallback((payload: any) => {
     const { action, type, result } = payload;
@@ -296,6 +337,35 @@ function App(props: AppProps) {
       zmClient.off('media-sdk-change', onMediaSDKChange);
     };
   }, [zmClient, onConnectionChange, onMediaSDKChange]);
+  useEffect(() => {
+    if (autoLeaveTimerRef.current !== null) {
+      window.clearTimeout(autoLeaveTimerRef.current);
+      autoLeaveTimerRef.current = null;
+    }
+    if (!automationConfig.enabled || !automationConfig.autoLeaveSeconds || status !== 'connected') {
+      return;
+    }
+    void logAutomationEvent(automationConfig, 'auto_leave_scheduled', {
+      afterSeconds: automationConfig.autoLeaveSeconds
+    });
+    autoLeaveTimerRef.current = window.setTimeout(() => {
+      void logAutomationEvent(automationConfig, 'auto_leave_requested', {
+        afterSeconds: automationConfig.autoLeaveSeconds
+      });
+      zmClient.leave().catch((error: any) => {
+        void logAutomationEvent(automationConfig, 'auto_leave_failed', {
+          reason: error?.reason ?? error?.message ?? String(error)
+        });
+      });
+    }, automationConfig.autoLeaveSeconds * 1000);
+
+    return () => {
+      if (autoLeaveTimerRef.current !== null) {
+        window.clearTimeout(autoLeaveTimerRef.current);
+        autoLeaveTimerRef.current = null;
+      }
+    };
+  }, [automationConfig, status, zmClient]);
   console.log({ isSupportGalleryView, galleryViewWithAttach });
   return (
     <div className="App">

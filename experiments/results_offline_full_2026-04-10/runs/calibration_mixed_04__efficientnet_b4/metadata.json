@@ -1,0 +1,12 @@
+{
+  "run_id": "calibration_mixed_04__efficientnet_b4",
+  "split": "calibration",
+  "kind": "mixed",
+  "ordinal": 4,
+  "model": "efficientnet_b4",
+  "duration_s": 600,
+  "video_filename": "calibration_mixed_04.mp4",
+  "labels_filename": "calibration_mixed_04_labels.csv",
+  "offline_mode": true,
+  "sample_every_s": 1
+}

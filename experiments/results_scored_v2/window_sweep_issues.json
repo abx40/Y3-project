@@ -1,0 +1,14 @@
+{
+  "f3net": [
+    {
+      "run_id": "validation_mixed_01__f3net",
+      "issue": "empty_predictions",
+      "result_dir": "C:\\Users\\weissach\\Desktop\\Y3\\Y3-project\\results\\validation_mixed_01__f3net"
+    }
+  ],
+  "efficientnet_b4": [],
+  "effort_clip_l14": [],
+  "i3d": [],
+  "videomae": [],
+  "xception_df40": []
+}

@@ -1,0 +1,7 @@
+backend,scope,scope_splits,live_windows,offline_windows,live_polarity,offline_polarity,live_auc,offline_auc
+f3net,test,test,300,300,high,high,0.658696,0.862705
+xception_df40,test,test,300,300,high,high,0.609405,0.794969
+efficientnet_b4,test,test,300,300,high,high,0.562247,0.781813
+effort_clip_l14,test,test,300,300,high,low,0.571359,0.438842
+i3d,test,test,300,295,high,high,0.550513,0.556725
+videomae,test,test,300,295,low,low,0.437531,0.517146

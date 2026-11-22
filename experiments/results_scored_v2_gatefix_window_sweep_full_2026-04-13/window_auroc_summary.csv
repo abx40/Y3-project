@@ -1,0 +1,8 @@
+window_s,validation_mean_auroc,test_mean_auroc,validation_best_backend,validation_best_auroc,test_best_backend,test_best_auroc
+1,0.503886,0.531502,videomae,0.533332,videomae,0.569573
+5,0.502219,0.533496,videomae,0.534979,videomae,0.572781
+10,0.511473,0.538913,videomae,0.55561,videomae,0.586515
+15,0.5146,0.513596,f3net,0.558223,videomae,0.572916
+20,0.496891,0.568523,f3net,0.591038,videomae,0.623377
+30,0.545767,0.507212,videomae,0.634461,efficientnet_b4,0.610978
+60,0.560897,0.540267,f3net,0.676282,f3net,0.7968

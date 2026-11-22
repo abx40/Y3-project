@@ -1,0 +1,12 @@
+{
+  "status": "success",
+  "run_id": "test_mixed_01__effort_clip_l14",
+  "started_at_iso": "2026-04-16T22:56:29Z",
+  "ended_at_iso": "2026-04-16T23:07:01Z",
+  "runtime_s": 600.0,
+  "buffer_s": 15.0,
+  "prediction_rows": 7279,
+  "active_video_model": "effort_clip_l14",
+  "resolved_model_name": "Effort CLIP-L14",
+  "error": ""
+}

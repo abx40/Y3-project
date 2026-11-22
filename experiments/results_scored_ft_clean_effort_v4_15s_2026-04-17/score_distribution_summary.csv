@@ -1,0 +1,3 @@
+backend,scope,signal_source,polarity,auc_high_means_fake,effective_auc,real_count,fake_count,real_mean,real_std,real_p05,real_p25,real_p50,real_p75,real_p95,fake_mean,fake_std,fake_p05,fake_p25,fake_p50,fake_p75,fake_p95,mean_gap_fake_minus_real
+effort_clip_l14,calibration,score_raw,high,0.518347,0.518347,205,157,0.502931,2.1e-05,0.502909,0.502929,0.502935,0.502941,0.502947,0.502934,1.2e-05,0.502913,0.502926,0.502935,0.502942,0.502949,3e-06
+effort_clip_l14,all,score_raw,high,0.557983,0.557983,400,362,0.502931,1.9e-05,0.502906,0.502926,0.502935,0.502942,0.50295,0.502935,1.4e-05,0.502916,0.502929,0.502937,0.502944,0.502952,4e-06

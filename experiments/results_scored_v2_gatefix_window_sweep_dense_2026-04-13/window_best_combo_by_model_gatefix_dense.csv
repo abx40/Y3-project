@@ -1,0 +1,7 @@
+window_s,backend,rank,winner,polarity,selected_policy,threshold,t_on,t_off,persistence_windows,calibration_real_only_fa_per_min,calibration_real_only_false_alert_time_ratio,validation_f1,validation_false_alerts_per_min,validation_false_alert_time_ratio,validation_ttfd_s,test_f1,test_false_alerts_per_min,test_false_alert_time_ratio,test_ttfd_s
+40,efficientnet_b4,2,False,low,strict_0.10,0.63,0.63,0.58,3,0.0,0.0,0.615385,0.315789,0.447368,6.203393,0.526316,0.4125,0.875,4.402
+22,effort_clip_l14,6,False,low,strict_0.10,0.1,0.1,0.0,3,0.1,0.046667,0.625767,0.664062,0.598958,4.122036,0.466667,0.552632,0.638158,9.079793
+60,f3net,3,False,high,strict_0.10,0.58,0.58,0.48,1,0.0,0.0,0.716981,0.208333,0.333333,5.853298,0.75,0.2,0.2,7.041024
+34,i3d,6,False,high,strict_0.10,0.72,0.72,0.62,1,0.1,0.036667,0.698113,0.441767,0.522088,3.315655,0.341463,0.277045,0.506596,12.656512
+34,videomae,3,False,low,strict_0.10,0.5,0.5,0.45,3,0.0,0.0,0.609756,0.240964,0.257028,8.333583,0.44186,0.237467,0.492084,10.446634
+57,xception_df40,5,False,low,strict_0.10,0.15,0.15,0.15,3,0.1,0.05,0.62069,0.364465,0.3918,6.191655,0.5,0.224719,0.554307,8.236585
