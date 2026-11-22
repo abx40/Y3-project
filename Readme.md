@@ -54,16 +54,9 @@ and [`experiments/results_roc_10s_scope_summaries_2026-04-20/roc_10s_test_summar
 
 ## Architecture
 
-```
-Web client (Vite/React) ──joins──▶ Zoom Video SDK session ◀──joins── Linux bot (C++, Docker)
-        ▲                                                                 │ raw I420 frames, HTTP POST
-   OBS Virtual Camera                                                     ▼
-                                                     Frame server (FastAPI + PyTorch)
-Token server (FastAPI) issues session JWTs            face crop → detector → 10 s window score
-                                                                          │
-                                                                          ▼
-                                                             Live dashboard (probability, alerts)
-```
+<p align="center">
+  <img src="docs/architecture.svg" alt="Architecture: OBS replay → Zoom SDK → Linux bot → FastAPI frame server → six fine-tuned detector backends, with calibration, results store and live dashboard" width="100%">
+</p>
 
 ## Repository layout
 

@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 430" width="1200" height="430" role="img" aria-labelledby="t d">
+  <title id="t">System architecture</title>
+  <desc id="d">Meeting clips are replayed through OBS into a Zoom Video SDK session. A Linux bot receives the live frames and posts them to a FastAPI frame server, which handles windowing and logging and feeds six detector backends. The frame server also drives calibration, the results store and the live dashboard.</desc>
+  <defs>
+    <radialGradient id="bg" cx="18%" cy="10%" r="95%">
+      <stop offset="0" stop-color="#0f3324"/>
+      <stop offset="0.55" stop-color="#0b1512"/>
+      <stop offset="1" stop-color="#090b0c"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3"/>
+    </filter>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .title { font-size: 21px; font-weight: 800; fill: #f3f1ea; }
+      .sub   { font-size: 15px; font-weight: 600; fill: #b8c2bd; }
+      .stitle { font-size: 14px; font-weight: 800; fill: #f3f1ea; }
+      .ssub  { font-size: 12.5px; font-weight: 600; fill: #b8c2bd; }
+      .box   { fill: #111a18; stroke-width: 2.5; }
+      .soft  { fill: #121b19; stroke: #2c3a36; stroke-width: 1.5; }
+      .pipe  { stroke: #e8b04a; stroke-width: 3; fill: none; }
+      .tree  { stroke: #2f4540; stroke-width: 3; fill: none; }
+      .flow  { stroke: #6fd3b0; stroke-width: 3; fill: none; stroke-dasharray: 4 14; stroke-linecap: round;
+               animation: flow 1.6s linear infinite; opacity: .75; }
+      .dot   { animation: pulse 2.4s ease-in-out infinite; }
+      .d2 { animation-delay: .4s } .d3 { animation-delay: .8s } .d4 { animation-delay: 1.2s } .d5 { animation-delay: 1.6s }
+      @keyframes flow  { to { stroke-dashoffset: -36; } }
+      @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+      @media (prefers-reduced-motion: reduce) { .flow, .dot { animation: none } .packet { display: none } }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="430" rx="22" fill="url(#bg)"/>
+  <rect x="1" y="1" width="1198" height="428" rx="21" fill="none" stroke="#1f2b28"/>
+
+  <!-- main pipeline connectors -->
+  <path id="pipeline" class="pipe" d="M230 112 H970"/>
+  <!-- packets travelling along the pipeline -->
+  <g class="packet">
+    <circle r="6" fill="#ffd27a" filter="url(#glow)"><animateMotion dur="4.5s" repeatCount="indefinite"><mpath href="#pipeline"/></animateMotion></circle>
+    <circle r="3.5" fill="#fff4d6"><animateMotion dur="4.5s" repeatCount="indefinite"><mpath href="#pipeline"/></animateMotion></circle>
+    <circle r="6" fill="#ffd27a" filter="url(#glow)"><animateMotion dur="4.5s" begin="1.5s" repeatCount="indefinite"><mpath href="#pipeline"/></animateMotion></circle>
+    <circle r="3.5" fill="#fff4d6"><animateMotion dur="4.5s" begin="1.5s" repeatCount="indefinite"><mpath href="#pipeline"/></animateMotion></circle>
+    <circle r="6" fill="#ffd27a" filter="url(#glow)"><animateMotion dur="4.5s" begin="3s" repeatCount="indefinite"><mpath href="#pipeline"/></animateMotion></circle>
+    <circle r="3.5" fill="#fff4d6"><animateMotion dur="4.5s" begin="3s" repeatCount="indefinite"><mpath href="#pipeline"/></animateMotion></circle>
+  </g>
+
+  <!-- frame server -> calibration / results / dashboard -->
+  <path class="tree" d="M835 167 V222 H165 V268 M445 222 V268 M725 222 V268"/>
+  <path class="flow" d="M835 167 V222 H165 V268"/>
+  <path class="flow" d="M835 222 H445 V268"/>
+  <path class="flow" d="M835 222 H725 V268"/>
+
+  <!-- six backends -> families -->
+  <path class="tree" d="M1070 190 V212 H1004 V236 M1070 212 H1136 V236 M1004 306 V318 M1136 306 V318"/>
+  <path class="flow" d="M1070 190 V212 H1004 V236"/>
+  <path class="flow" d="M1070 212 H1136 V236"/>
+
+  <!-- top row -->
+  <g>
+    <rect class="box" x="30" y="57" width="200" height="110" rx="16" stroke="#e8b04a"/>
+    <circle class="dot" cx="54" cy="88" r="7" fill="#e8b04a"/>
+    <text class="title" x="70" y="95">OBS replay</text>
+    <text class="sub" x="50" y="126">Meeting clips</text>
+    <text class="sub" x="50" y="147">played as live video</text>
+  </g>
+  <g>
+    <rect class="box" x="265" y="57" width="200" height="110" rx="16" stroke="#5fd4d6"/>
+    <circle class="dot d2" cx="289" cy="88" r="7" fill="#5fd4d6"/>
+    <text class="title" x="305" y="95">Zoom SDK</text>
+    <text class="sub" x="285" y="126">Browser client +</text>
+    <text class="sub" x="285" y="147">meeting transport</text>
+  </g>
+  <g>
+    <rect class="box" x="500" y="57" width="200" height="110" rx="16" stroke="#34d399"/>
+    <circle class="dot d3" cx="524" cy="88" r="7" fill="#34d399"/>
+    <text class="title" x="540" y="95">Linux bot</text>
+    <text class="sub" x="520" y="126">Receives live frames</text>
+    <text class="sub" x="520" y="147">from the call (C++)</text>
+  </g>
+  <g>
+    <rect class="box" x="735" y="57" width="200" height="110" rx="16" stroke="#7aa7ff"/>
+    <circle class="dot d4" cx="759" cy="88" r="7" fill="#7aa7ff"/>
+    <text class="title" x="775" y="95">Frame server</text>
+    <text class="sub" x="755" y="126">FastAPI ingestion,</text>
+    <text class="sub" x="755" y="147">windowing, logging</text>
+  </g>
+  <g>
+    <rect class="box" x="970" y="57" width="200" height="133" rx="16" stroke="#f05d5e"/>
+    <circle class="dot d5" cx="994" cy="88" r="7" fill="#f05d5e"/>
+    <text class="title" x="1010" y="95">Six backends</text>
+    <text class="sub" x="990" y="126">Common detector API,</text>
+    <text class="sub" x="990" y="147">all six fine-tuned</text>
+    <text class="sub" x="990" y="168">for this project</text>
+  </g>
+
+  <!-- bottom row -->
+  <g>
+    <rect class="soft" x="40" y="268" width="250" height="104" rx="16"/>
+    <text class="title" x="62" y="305">Calibration</text>
+    <text class="sub" x="62" y="334">10 s window, polarity,</text>
+    <text class="sub" x="62" y="355">FPR gate, thresholds</text>
+  </g>
+  <g>
+    <rect class="soft" x="320" y="268" width="250" height="104" rx="16"/>
+    <text class="title" x="342" y="305">Results store</text>
+    <text class="sub" x="342" y="334">Predictions, metrics,</text>
+    <text class="sub" x="342" y="355">crop diagnostics</text>
+  </g>
+  <g>
+    <rect class="soft" x="600" y="268" width="250" height="104" rx="16"/>
+    <text class="title" x="622" y="305">Dashboard</text>
+    <text class="sub" x="622" y="334">Scores, alert state,</text>
+    <text class="sub" x="622" y="355">diagnostics</text>
+  </g>
+
+  <!-- model families -->
+  <g>
+    <rect class="soft" x="944" y="236" width="120" height="70" rx="12"/>
+    <circle cx="960" cy="256" r="5" fill="#5fd4d6"/>
+    <text class="stitle" x="971" y="261">Spatial CNNs</text>
+    <text class="ssub" x="955" y="281">Xception</text>
+    <text class="ssub" x="955" y="297">EfficientNet-B4</text>
+  </g>
+  <g>
+    <rect class="soft" x="1076" y="236" width="120" height="70" rx="12"/>
+    <circle cx="1092" cy="256" r="5" fill="#34d399"/>
+    <text class="stitle" x="1103" y="261">Frequency</text>
+    <text class="ssub" x="1087" y="281">F3Net</text>
+  </g>
+  <g>
+    <rect class="soft" x="944" y="318" width="120" height="70" rx="12"/>
+    <circle cx="960" cy="338" r="5" fill="#7aa7ff"/>
+    <text class="stitle" x="971" y="343">Temporal</text>
+    <text class="ssub" x="955" y="363">I3D</text>
+    <text class="ssub" x="955" y="379">VideoMAE</text>
+  </g>
+  <g>
+    <rect class="soft" x="1076" y="318" width="120" height="70" rx="12"/>
+    <circle cx="1092" cy="338" r="5" fill="#e8b04a"/>
+    <text class="stitle" x="1103" y="343">Vision-lang.</text>
+    <text class="ssub" x="1087" y="363">Effort</text>
+    <text class="ssub" x="1087" y="379">(CLIP ViT-L/14)</text>
+  </g>
+</svg>
